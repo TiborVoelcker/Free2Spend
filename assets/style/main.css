@@ -1,0 +1,42 @@
+/*
+  Copyright (c) Tibor Völcker <tibor.voelcker@hotmail.de>
+  Created on 09.04.2023
+*//*
+  Copyright (c) Tibor Völcker <tibor.voelcker@hotmail.de>
+  Created on 08.04.2023
+*/
+:root {
+  --background: #2F2C34;
+  --background-shade: #2F2C34E5;
+  --text: #DDE0DF;
+  --text-shade: #DDE0DF19;
+  --brand1: #42B4D0;
+  --brand2: #E53B39;
+  --brand3: #FFCC00;
+}
+
+html {
+  box-sizing: border-box;
+  color: var(--text);
+  font-family: 'Roboto Condensed';
+  font-weight: 400;
+  font-size: 24px;
+}
+*, *:before, *:after {
+  box-sizing: inherit;
+  color: inherit;
+}
+
+body {
+  background: var(--background);
+  margin: 0;
+}
+
+body > div {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 100%;
+  justify-content: flex-start;
+  align-items: stretch;
+}
