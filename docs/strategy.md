@@ -1,7 +1,8 @@
 # Free2Spend — Strategy
 
 Status: draft, evolving. This document describes the *financial strategy* the app
-implements. It deliberately says nothing about technology, storage or UI.
+implements, and fixes the vocabulary used everywhere else. It says nothing about
+technology, storage or UI — see `implementation.md` for that.
 
 ---
 
@@ -14,279 +15,301 @@ Everything else in the system exists only to make that number trustworthy.
 
 The number is funded by **last month's leftover money**. This is what makes it
 safe to spend to zero: this month's required expenses are paid from this month's
-income, not from the free-to-spend money. The free-to-spend money is genuinely
-surplus that has already survived a full month.
-
-Two properties make the whole thing work:
-
-- **Errors self-correct with one month of lag.** Underestimate groceries by €150
-  and this month's income absorbs it; next month's free-to-spend is €150 smaller.
-  Closed loop, no manual correction.
-- **Savings and irregular costs are deducted first**, so the residual really is
-  free. "Save whatever is left over" is inverted into "spend whatever is left over".
+income, not from the free-to-spend money. Free-to-spend is genuinely surplus
+that has already survived a full month.
 
 ---
 
 ## 2. The model
 
-### 2.1 Pots
+### 2.1 The definition
 
-All money is in exactly one of these pots at any time:
+At the start of each period:
 
-| Pot | Fed by | Drained by |
+> **free-to-spend = balance − pockets**
+
+where *balance* is the real money in all tracked accounts at the moment the
+previous period ended, and *pockets* is the sum of all virtual pockets.
+
+That is the whole system. Free-to-spend is **derived from reality**, not
+accumulated. It is recomputed from the bank's own number at every rollover.
+
+During the period the number only ever goes down, and only by transactions
+classified as **fun**. Everything else — income arriving, rent going out — just
+moves the balance, and shows up at the next rollover.
+
+### 2.2 Why this is the good part
+
+Because free-to-spend is derived rather than tracked, a long list of things
+need no rules at all:
+
+- **Unspent money carries over.** Not by a carry-over rule — the money is simply
+  still in the account, so next period's balance is higher. Nothing to implement.
+- **The books cannot drift.** `balance = free-to-spend + pockets` is not an
+  invariant to maintain, it is the definition. It re-derives from the bank every
+  period. There is no accumulated state to get out of sync with reality.
+- **Windfalls need no handling.** A bonus raises the balance, which raises next
+  period's free-to-spend.
+- **Volatility is self-smoothing.** Underspend twice and the money is there for
+  Christmas, with no Christmas pocket.
+- **Negative months need no absorb rule.** See §4.2.
+- **Errors self-correct with one period of lag.** Underestimate groceries and
+  this period's income absorbs it; next period's free-to-spend is smaller.
+
+### 2.3 Rollover
+
+At each cutover:
+
+1. take the balance across all tracked accounts
+2. apply this period's pocket contributions (raising `pockets`)
+3. `free-to-spend = balance − pockets`
+
+That is the entire periodic logic. There are no snapshots to keep and no
+running totals to maintain.
+
+### 2.4 Classification, and what actually matters
+
+Every real transaction gets a class:
+
+| Class | Effect | If it is wrong |
 |---|---|---|
-| **Operating (current month)** | this month's income | this month's required expenses, this month's pocket contributions |
-| **Free-to-spend** | the operating surplus of the previous month | discretionary spending |
-| **Pockets** | monthly contributions from operating | the specific expenses they exist for |
-| **Safety net** | manual/configured contributions | only a free-to-spend balance that has gone below zero |
+| **required** (default) | none — it only moves the balance | self-erases at the next rollover |
+| **fun** | reduces this period's free-to-spend | self-erases at the next rollover |
+| **pocket payment** | reduces that pocket | **permanent** offset |
+| **transfer** | between two tracked accounts; no effect | balance unaffected either way |
 
-The safety net is a pocket. It differs only in *when* it may be drained.
+The required/fun split is a **display concern only**. It affects what the number
+reads *during* the period and nothing else — `free-to-spend = balance − pockets`
+does not contain the split, so a misclassification is completely erased at
+rollover. This is why classification can stay manual and casual.
 
-### 2.2 The invariant
-
-> **real money in all tracked accounts = operating + free-to-spend + all pockets**
-
-Every rule in the system must preserve this. This is what makes it safe to be
-sloppy elsewhere: any inaccuracy can only *move money between pots*, never
-create or destroy it. A negative month must be booked somewhere real, never
-silently clamped to zero.
-
-### 2.3 Free-to-spend is a balance, not a monthly allowance
-
-It is a running pot that receives a deposit at each month boundary and **never
-resets**. This single decision covers, with no extra rules:
-
-- carry-over of unspent money (the balance just stays)
-- windfalls (bigger surplus → bigger deposit)
-- negative months (a negative deposit)
-- month-to-month volatility (self-smoothing)
-- saving up for seasonal lumps like Christmas (underspend twice, the money is there)
-
-If the balance drifts upward over time, that is a signal — the user should move
-some of it into savings by hand. The system does not do this automatically.
-
-### 2.4 Month rollover
-
-At the month boundary:
-
-1. `operating surplus = income − required expenses − pocket contributions`
-2. `free-to-spend += operating surplus` (may be negative)
-3. operating resets to zero and begins collecting the new month's income
-
-That is the entire monthly logic.
-
-### 2.5 Classification is mandatory
-
-Every transaction is assigned to exactly one of:
-
-- **required** → reduces this month's operating pot
-- **free** → reduces the free-to-spend balance
-- **pocket X** → reduces that pocket
-- **transfer** → moves money between tracked accounts, affects no pot
-
-This split is *not* optional. Required spending and discretionary spending hit
-different pots; without the split, the number is meaningless.
-
-**But misclassification is self-healing.** Mark a fun purchase as required and
-this month's free-to-spend reads too high while next month's reads too low by
-the same amount. The total is unaffected. Errors cost a wrong signal for a few
-weeks, never real money.
-
-The practical consequence: transaction review is the recurring cost of running
-this system, and merchant-based auto-classification rules are load-bearing, not
-a nice-to-have. If review takes more than a few minutes a week, the system will
-be abandoned.
+Pocket payments are different and must be right. If the €600 insurance debit is
+not recorded as drawing down the insurance pocket, that pocket stays €600 too
+full forever and free-to-spend is permanently €600 lower. Correctness effort
+belongs here, not in the fun/required split.
 
 ---
 
 ## 3. What deserves a pocket
 
-**The test:** a pocket is for things where *not having the money at a specific
-moment is a real problem*.
+**The pocket test:** a pocket is for things where *not having the money at a
+specific moment is a real problem*.
 
-- Amount is essentially non-negotiable, **and**
-- paying it out of one month would wipe out that month
+- The amount is essentially non-negotiable, **and**
+- paying it out of a single period would wipe that period out
 
-Both true → pocket. Otherwise → free-to-spend.
-
-Worked examples:
+Both true → pocket. Otherwise → free-to-spend. *(This test should appear as a
+hint in the app when creating a pocket.)*
 
 | | Pocket? | Why |
 |---|---|---|
 | Yearly insurance premium | yes | fixed amount, fixed date, large |
-| Savings / investing | yes | must be deducted before the residual, or it never happens |
-| Safety net | yes | see below |
-| Clothes | **no** | if the budget is tight, buy cheaper or wait — that's fine |
-| Christmas / birthday presents | **no** | same; amount is negotiable |
-| Holiday / travel | user's choice | only if they'd rather not have it compete with daily spending |
-| Phone / laptop replacement | user's choice | leaning no; free-to-spend can absorb it over a couple of months |
-| Loan repayment | no | it's a standing required expense |
+| Buffer (safety net) | yes | see §4.3 |
+| Clothes | **no** | budget tight → buy cheaper or wait. That's fine. |
+| Christmas / birthday presents | **no** | same; the amount is negotiable |
+| Holiday / travel | user's choice | only if they'd rather it not compete with daily spending |
+| Phone / laptop replacement | user's choice | leaning no; free-to-spend absorbs it over a couple of periods |
+| Loan repayment | no | a standing required expense |
+| Savings / investing | no | a real transfer to a hidden account — see §4.4 |
 
-The default is **no pocket**. Pockets are the complexity in this system; each one
-is a recurring decision the user has to maintain.
+The default is **no pocket**. Pockets are the complexity in this system; each
+one is a recurring decision to maintain.
 
 ---
 
 ## 4. Rules and edge cases
 
-### 4.1 Accounting month vs. value date
+### 4.1 Period boundaries
 
-Every transaction carries two dates:
+Salary for month M typically arrives at the *end* of M-1, and rent for M is
+often debited then too. If the period were the calendar month, the balance
+snapshot would include a salary that has not been earned against yet — and
+because it happens *every* month, free-to-spend would be overstated by a full
+salary permanently, not just once.
 
-- **value date** — when the money actually moved
-- **accounting month** — which month it counts toward
+The rule that matters: **a one-off transaction near a boundary only fluctuates
+and self-corrects; a recurring one that always lands on the wrong side causes a
+permanent offset.**
 
-They are normally the same. The known exception: **salary often arrives at the
-end of the preceding month** but belongs to the month it pays for. Without this
-separation, that salary would inflate the previous month's surplus and thus
-free-to-spend, double-counting it.
+The fix is to move the boundary, not the transactions: a period runs from the
+**cutover day** to the cutover day (e.g. the 27th → the 26th) and is labelled by
+the calendar month it mostly covers. One configuration value handles both the
+salary and the end-of-month rent, with no per-transaction dates to maintain.
 
-Keeping this as an explicit field costs nothing and is what makes payment float
-(§5) a later rule change rather than a rewrite.
+Per-transaction overrides are deferred (§5).
 
-### 4.2 Negative months
+### 4.2 Negative free-to-spend
 
-The operating surplus can be negative (a tax bill, a car repair, an annual
-reconciliation). Then:
+Needs no special rule. `free-to-spend < 0` simply means the pockets claim more
+money than the account holds. It happens when the previous period overspent, or
+when contributions were larger than the surplus.
 
-1. free-to-spend absorbs it first — the balance simply drops, possibly to a
-   small number. This is the normal case and needs no intervention.
-2. Only if the free-to-spend **balance itself would go below zero** does the
-   safety net come into play.
+The remedy is one manual move out of the buffer pocket — which *is* the safety
+net doing its job. Nothing is automatic; the negative number is the warning.
 
-A negative free-to-spend balance is displayed honestly ("you owe your future
-self") with a prominent warning. Whether to book a transfer from the safety net
-to clear it is the user's decision, not automatic.
+### 4.3 The buffer (safety net)
 
-### 4.3 Safety net
+A pocket like any other. It exists for **required expenses of unknown amount and
+timing**: tax settlements, utility reconciliation (Nebenkostenabrechnung), car
+repairs, medical bills, replacing things that broke. These are deliberately *not*
+given their own pockets, so the buffer is the only thing standing behind them.
 
-- No automatic refill. Either a configured monthly contribution, or the user
-  moves money in by hand.
-- The app shows how full it is against its target and warns when it is short.
-- It exists for **required expenses of unknown amount and timing**: tax
-  settlements (Steuernachzahlung), utility reconciliation (Nebenkostenabrechnung),
-  car repairs, medical bills, replacement of things that broke.
+No automatic refill. Either a configured contribution, or the user moves money in
+by hand. The app shows how full it is against its target.
 
-### 4.4 Windfalls
+### 4.4 Tracked and hidden accounts
 
-Bonuses, travel reimbursements from the employer, extra work, 13th salary. No
-special handling: they are income into operating, which increases the surplus,
-which increases next month's free-to-spend deposit. If the user wants to save
-it instead, they move it to a pocket by hand.
+- **Tracked accounts** are summed to produce the balance.
+- **Hidden accounts** are invisible to the app. Money sent there is simply spent
+  (a required expense); money coming back is income.
+- Pockets are purely virtual and are **not** tied to which account cash sits in.
+  A buffer pocket needs no separate real account, and a real savings account
+  needs no pocket.
+
+This is how savings work: rather than a savings pocket, make a real standing
+transfer to a hidden savings account. It leaves the balance, so it is deducted
+before the residual, which is the whole point — and it needs no pocket machinery.
 
 ### 4.5 Pocket underfunding
 
-If the operating pot cannot cover all pocket contributions, **fund the pockets
-in full anyway** and let free-to-spend go negative, with a loud warning. No
-priority ordering, no partial fills. The user gets the same information with far
-less machinery.
+If the balance cannot cover all pocket contributions, **fund them in full anyway**
+and let free-to-spend go negative. No priority ordering, no partial fills. The
+user can still go out with friends once, and knows to save this period.
 
-### 4.6 Tracked vs. external accounts
+### 4.6 Shared flat account
 
-- **Tracked accounts** are the accounts the invariant in §2.2 sums over.
-- Pockets are purely virtual and are **not** tied to which account the cash
-  physically sits in. A safety net pocket does not require a separate real
-  account, and a separate real account does not require its own pocket.
-- Anything **untracked** — a broker account, the shared flat account — is
-  external. Money moving there is an expense; money coming back is income.
+The fixed monthly payment into a shared account is a plain required expense. The
+occasional extra transfer or settlement is treated as a rounding error and
+absorbed. The user's share of the balance sitting there is invisible to the app.
 
-### 4.7 Shared flat account
+### 4.7 Ledger and projection
 
-The fixed monthly payment into the shared account (rent + food) is a plain
-required expense. Occasional top-ups look like expenses, settlements look like
-income, and the user's share of the balance sitting in there is invisible.
-
-Accepted for now, but noted as an **asymmetric** error: systematic overpayment
-into the shared account makes the user feel permanently poorer than they are,
-with no visible cause. Worth watching over the first months.
-
-### 4.8 Ledger vs. projection
-
-Two different things, and they should not be confused:
-
-- The **ledger** is backward-looking and exact. It is where the invariant holds.
-- The **projection** ("what will next month's free-to-spend be?") is
-  forward-looking and approximate. It only becomes accurate late in the month.
+- The **ledger** is backward-looking and exact.
+- The **projection** ("what will next period's free-to-spend be?") is
+  forward-looking and approximate; it only sharpens late in the period.
 
 The projection is a display concern and must never write to the ledger.
 
-### 4.9 Volatility
+### 4.8 Volatility
 
-Displayed raw. No smoothing, no capping. The user is assumed capable of
-smoothing it themselves, and §2.3 already smooths it structurally.
+Displayed raw. No smoothing, no capping. §2.2 already smooths it structurally,
+and the user is assumed capable of the rest.
 
 ---
 
 ## 5. Deliberately deferred
 
-Considered, understood, consciously left out of the first version. Recorded so
-we do not rediscover them as bugs.
+Considered, understood, consciously left out. Recorded so we do not rediscover
+them as bugs.
 
 | Thing | Why deferred | Later cost |
 |---|---|---|
-| **Transitory money** — group dinners, fronted work expenses, deposits, money you'll get back | It nets out within one or two months and the margins are loose enough to absorb it | Low. A "reimbursable" flag on a transaction. |
-| **Payment float** — a purchase in month M that settles in M+1 | Everything is debit; float is near zero | Low, *provided* §4.1 (accounting month) is built from the start |
-| **Debt as a first-class concept** | Modelled as a required expense or a pocket | Medium. Would need balance tracking. |
+| **Transitory money** — group dinners, fronted work expenses, deposits | Nets out within a period or two; margins are loose enough | Low. A flag on a transaction. |
+| **Payment float** — bought in one period, settles in the next | Everything is debit; float is near zero | Low, *provided* the period boundary (§4.1) exists from the start |
+| **Per-transaction period overrides** | The cutover day handles the recurring cases, which are the ones that matter | Low |
+| **Debt as a first-class concept** | A required expense, or a pocket | Medium — would need balance tracking |
 | **Pocket priority when underfunded** | §4.5 gives the same information without it | Low |
-| **Automatic safety-net refill** | A warning conveys the same urgency | Low |
-| **Free-to-spend smoothing** | §2.3 does it structurally | Low |
-| **Investment value / net worth** | Savings pockets track *contributions*, not market value | High — needs price data |
+| **Automatic buffer refill** | A negative number conveys the same urgency | Low |
+| **Free-to-spend smoothing** | §2.2 does it structurally | Low |
+| **Investment value / net worth** | Savings live in hidden accounts; the app never sees them | High — needs price data |
 | **Multi-currency** | Germany only | High |
-| **Multi-user / shared budgets** | Single user; the shared account is a black box (§4.7) | High |
+| **Multi-user / shared budgets** | Single user; the shared account is a black box (§4.6) | High |
 | **Interest, inflation** | Irrelevant at this scale | — |
-| **What-if forecasting beyond next month** | Not the point of the tool | Medium |
+| **Forecasting beyond the next period** | Not the point of the tool | Medium |
 
 ---
 
 ## 6. Requirements for this strategy to work
 
-This strategy is not universal. It works for the author. Anyone else should
-check these first — several of them are hard prerequisites, not preferences.
+Not universal. It works for the author. Anyone else should check these first —
+several are hard prerequisites, not preferences.
 
 **Hard prerequisites**
 
 1. **Income reliably exceeds required expenses**, with enough headroom that a
-   full month's surplus is a meaningful amount of money. If the surplus is
-   routinely near zero, there is no free-to-spend budget and the system has
-   nothing to say.
-2. **Roughly one month of expenses already in the bank.** The free-to-spend pot
-   has to start funded. Without it the app starts at €0 and the user waits a
-   full month before it does anything. This is a cash prerequisite, not a data
-   prerequisite — importing history does not create the buffer.
+   period's surplus is a meaningful amount of money. If the surplus is routinely
+   near zero there is no free-to-spend budget and the app has nothing to say.
+2. **Roughly one period of expenses already in the bank.** This is a *cash*
+   prerequisite, not a data one — importing history does not create the buffer.
+   This is not an accident of the design, it is the point: you only spend on fun
+   when you are certain the money is there, and you are certain when it is last
+   period's surplus.
 3. **No high-interest revolving debt.** "Spend everything that's left" is the
-   wrong advice while credit card debt is compounding.
-4. **A safety net large enough for the worst realistic surprise.** Since
-   unknown-amount required expenses (tax bill, utility reconciliation, car,
-   dentist) are deliberately *not* given pockets, the safety net is the only
-   thing standing behind them. Rule of thumb: the largest plausible single
-   surprise, plus one month of required expenses.
+   wrong advice while credit card debt compounds.
+4. **A buffer large enough for the worst realistic surprise.** Since
+   unknown-amount required expenses get no pockets, the buffer is all that stands
+   behind them. Rule of thumb: the largest plausible single surprise, plus one
+   period of required expenses.
 
 **Strong assumptions**
 
 5. **Stable, predictable income.** Occasional extra payments are fine — they are
-   just windfalls (§4.4). Genuinely variable income (freelancing) breaks the
-   "last month's leftover" premise and would need a smoothing pocket that pays
-   the user a fixed salary.
-6. **Mostly debit / instant payment.** Heavy credit card use makes float (§5)
-   matter much sooner.
-7. **Discretionary spending is genuinely discretionary** — it can be cut to
-   near zero in a bad month without harm.
-8. **Willingness to review and classify transactions**, a few minutes a week
-   (§2.5).
-9. **Self-control.** The system makes overspending *visible*; it does not
-   prevent it. Free-to-spend being a carried balance means an overspend follows
-   you into next month.
+   just windfalls. Genuinely variable income (freelancing) breaks the "last
+   period's leftover" premise and would need a smoothing pocket paying a fixed
+   salary.
+6. **Mostly debit / instant payment.** Heavy credit card use makes float matter
+   much sooner.
+7. **Discretionary spending is genuinely discretionary** — cuttable to near zero
+   in a bad period without harm.
+8. **Willingness to review and classify transactions**, a few minutes a week.
+9. **Self-control.** The system makes overspending *visible*; it does not prevent
+   it, and an overspend follows you into the next period.
 
 ---
 
-## 7. Open questions
+## 7. Vocabulary
 
-- Does a negative free-to-spend balance stay negative and get eaten by the next
-  deposit, or should it be settled from the safety net immediately? Leaning
-  toward "stays negative, warn loudly, user decides". To be tested in practice.
-- What is the primary display: "remaining this month" plus "projected for next
-  month"? A daily burn-down? To be decided when we get to UI.
-- Should the app nag when the free-to-spend balance drifts upward over several
-  months (i.e. "you could be saving more")?
-- How much of the classification can realistically be automated from German
-  bank exports (merchant names, Verwendungszweck)?
+The official names. Used in the docs, the UI, and the code.
+
+### Money
+
+| Term | Meaning |
+|---|---|
+| **Balance** | real money across all tracked accounts |
+| **Tracked account** | an account whose money counts toward the balance |
+| **Hidden account** | an account the app ignores; money sent there is spent |
+| **Pocket** | a virtual sub-balance reserved for a purpose |
+| **Buffer** | the pocket for unplanned required expenses (the safety net) |
+| **Free-to-spend** | `balance − pockets`, fixed at the start of a period |
+| **Remaining** | free-to-spend minus the fun spending so far this period |
+
+### Time
+
+| Term | Meaning |
+|---|---|
+| **Period** | one budget month; runs cutover to cutover, labelled by the calendar month it mostly covers |
+| **Cutover day** | the day of month on which one period ends and the next begins |
+| **Rollover** | the event at a cutover, when free-to-spend is recomputed |
+
+### Movements
+
+| Term | Meaning |
+|---|---|
+| **Transaction** | a real bank transaction, imported |
+| **Class** | what a transaction is: required, fun, pocket payment, or transfer |
+| **Required** | the default; does not touch free-to-spend |
+| **Fun** | paid out of free-to-spend |
+| **Pocket payment** | a real transaction that draws down a pocket |
+| **Transfer** | movement between two tracked accounts; no effect on anything |
+| **Contribution** | a recurring virtual move into a pocket, applied at rollover |
+| **Move** | a manual virtual transfer between pockets and free-to-spend |
+
+### Pocket settings
+
+| Term | Meaning |
+|---|---|
+| **Target** | how much the pocket should hold |
+| **Due date** | when it needs to be full (optional) |
+
+---
+
+## 8. Open questions
+
+- Which cutover day? To be picked from the actual transaction history, looking
+  for a reliable gap between the last debits of one month and the salary.
+- What is the primary display: *remaining* plus *projected next period*? A daily
+  burn-down?
+- Should the app say something when free-to-spend drifts upward over several
+  periods (i.e. "you could be saving more")?
+- How much classification can realistically be automated from German bank
+  exports (merchant name, Verwendungszweck)?
