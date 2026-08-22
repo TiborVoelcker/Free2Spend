@@ -19,7 +19,7 @@ accumulator, the app needs almost no stored state.
 - accounts (tracked / hidden)
 - the transaction log, with each transaction's class
 - pocket configuration
-- virtual transactions, automatic and manual (§5.3)
+- virtual transactions, automatic and manual (§5.2)
 - balance anchors from imports (§3.3)
 
 **Derived on demand, never stored:**
@@ -76,6 +76,9 @@ This has consequences worth stating up front, because they shape the whole build
   rather than erroring.
 - **Build against the sandbox first.** The strategy can be validated long before
   a real bank is ever connected.
+- **Staleness between refreshes is accepted.** The number will occasionally be a
+  little behind. No compensating mechanism (such as manually entering a fun
+  expense before it lands) is built.
 - **Bank coverage: verified.** The author's bank is supported by Enable Banking.
   What it actually exposes (history depth, balance types, update latency) is
   still to be measured.
@@ -139,7 +142,7 @@ one subtraction per import.
 ### 4.1 The rollover day
 
 A single configuration value: the day of month at which one period ends and the
-next begins. A period is labelled by the calendar month it mostly covers.
+next begins. A period is shown as its actual date range, not a month name.
 
 This replaces the alternative of detecting recurring transactions and shifting
 their dates individually. See `strategy.md` §4.1 for why — briefly: only
@@ -152,24 +155,17 @@ a reliable gap. It needs a margin: if the salary sometimes lands a day early, th
 rollover day has to sit safely before the earliest it has ever arrived.
 
 **This setting has to explain itself.** It is the least intuitive option in the
-app, and getting it wrong is not a cosmetic error — a rollover day on the wrong
-side of the salary overstates free-to-spend by a full salary, every period,
-permanently. The configuration screen should:
-
-- state the consequence in plain words, with the user's own numbers ("your salary
-  arrives around the 29th; a rollover day after that would count it as last
-  period's leftover")
-- **suggest a day** by analysing the transaction history for the widest reliable
-  gap before the recurring income, rather than asking cold
-- show which recurring transactions land in which period under the chosen day, so
-  the effect is visible before it is saved
+app, and a rollover day on the wrong side of the salary overstates free-to-spend
+by a full salary every period, permanently. The configuration screen should say
+that in plain words. Suggesting a day from the history, and previewing its effect,
+are parked in `v2-ideas.md`.
 
 ### 4.2 No scheduled work
 
 Rollover is not an event that needs to fire on time. "Which period is today in"
 is a pure function of the date and the rollover day, and every number is derived.
 The only thing that needs to *happen* at a rollover is materializing pocket
-contributions (§5.3), and that can be done lazily on next app load: "materialize
+contributions (§5.2), and that can be done lazily on next app load: "materialize
 contributions for any period that has begun since we last looked."
 
 So: no cron, no background jobs, no risk of a missed rollover corrupting anything.
@@ -180,8 +176,9 @@ So: no cron, no background jobs, no risk of a missed rollover corrupting anythin
 
 ### 5.1 Configuration
 
-A pocket has: a name, an optional **target**, an optional **due date**, and a
-**contribution** per period. Three useful combinations:
+A pocket has: a name, an optional **target**, an optional **due date** with an
+optional **recurrence**, and a **contribution** per period. Three useful
+combinations:
 
 | Setup | Contribution | Example |
 |---|---|---|
@@ -189,49 +186,31 @@ A pocket has: a name, an optional **target**, an optional **due date**, and a
 | target, no due date | user-set; stops on reaching the target | the buffer |
 | neither | user-set, or manual moves only | an open-ended pot |
 
-### 5.2 Pockets need a recurrence, not just a due date
+**Recurrence** matters because insurance is due every year, not once. On depletion
+(§5.3) the due date rolls forward and the contribution recomputes, so the pocket is
+fire-and-forget instead of needing reconfiguration after every payment.
 
-A gap in the original sketch. Insurance is not due once — it is due *every year*.
-With only a one-off due date, every recurring pocket has to be reconfigured by
-hand after each payment, which is exactly the recurring maintenance the strategy
-tries to avoid.
+### 5.2 Virtual transactions
 
-So a pocket's due date should carry an optional **recurrence** (yearly, quarterly,
-…). When the pocket is depleted (§5.4), the due date rolls forward and the
-contribution recomputes automatically. The pocket becomes fire-and-forget.
+At each rollover the app **writes an automatic virtual transaction** into each
+pocket. A pocket's balance is the sum of the virtual transactions and pocket
+payments against it — it is never recomputed from the pocket's configuration.
 
-### 5.3 Virtual transactions
+This is the one place stored state is genuinely required, because a configuration
+change must be **forward-looking**. A pocket that has received €50 for 10 periods
+holds €500; raising it to €80 must leave it at €500 and grow it by €80 from the
+next rollover. Derived from configuration it would instead jump to `80 × 10` =
+€800 — claiming money that was never set aside, and dropping free-to-spend by €300
+on the spot.
 
-A pocket's monthly contribution is not applied by recomputing the pocket's balance
-from its configuration. At each rollover the app **writes an automatic virtual
-transaction** into the pocket, and the pocket's balance is the sum of the virtual
-transactions and pocket payments against it.
-
-This is the one place stored state is genuinely required, and the reason is not
-history-keeping — it is that a configuration change must be **forward-looking**
-rather than retroactive.
-
-Worked example. A pocket has had a €50 contribution for 10 periods and holds €500.
-The user raises it to €80.
-
-- *Balance derived from configuration:* the pocket becomes `80 × 10` = €800. It
-  jumps by €300 immediately, and free-to-spend drops by €300 immediately, because
-  the pocket now claims money was set aside that never was.
-- *Balance derived from written-down virtual transactions:* the pocket still holds
-  €500, and grows by €80 from the next rollover. Free-to-spend drops by €30 next
-  period.
-
-The second is what a user expects. Historic free-to-spend staying true is a side
-effect, not the motivation.
-
-Manual virtual transactions (§5.5) are the same kind of record, differing only in
-who created them.
+Manual virtual transactions (§5.4) are the same record, differing only in who
+created them.
 
 **Idempotency.** Because automatic virtual transactions are generated lazily on
 app load (§4.2) rather than by a scheduled job, they must be keyed by pocket and
 period, so two loads in quick succession cannot create the contribution twice.
 
-### 5.4 Depletion: detection plus a prompt
+### 5.3 Depletion: detection plus a prompt
 
 When the insurance is actually paid, the transaction must be classified as a
 **pocket payment** against that pocket. This is ledger-critical: a missed one
@@ -252,7 +231,7 @@ something with a permanent consequence:
   full is almost certainly a missed payment. Asking is a far stronger safety net
   than any matching heuristic, and it costs nothing to implement.
 
-### 5.5 Manual virtual transactions
+### 5.4 Manual virtual transactions
 
 The user must be able to move money virtually, in both directions:
 
@@ -263,7 +242,7 @@ The user must be able to move money virtually, in both directions:
 
 Same record type as the automatic ones, dated into a period.
 
-### 5.6 Initial balances
+### 5.5 Initial balances
 
 On setup, a pocket can be seeded with a starting balance — the user has probably
 been mentally setting money aside already. Small, but easy to forget, and without
@@ -280,8 +259,10 @@ and cheaper than it looks, because required/fun is display-only and self-erasing
 (`strategy.md` §2.4). Getting it wrong costs a slightly wrong number for a few
 weeks and nothing else.
 
-Automatic rules (by counterparty, by amount) can come later. They are a
-convenience, not a correctness feature.
+Rules can come later, and when they do they are **explicitly configured**, not
+inferred: *if the amount is X and the counterparty is Y, classify as Z.* No
+learning, no guessing from history. A rule the user wrote is auditable and
+predictable; a rule the app inferred is neither, and this is money.
 
 ### 6.2 The review queue
 
@@ -366,14 +347,3 @@ What the user actually does, which should drive UI priorities:
 - **At a rollover:** look at the new free-to-spend. Notice if it is negative, and
   decide whether to cover it from the buffer.
 - **Rarely:** add or adjust a pocket, make a manual move.
-
----
-
-## 10. Open decisions
-
-- **Between refreshes the number is stale.** Accept it, or allow a quick manual
-  entry of a fun expense that later reconciles against the next refresh? Accepting
-  it is simpler. How bad this is depends on how quickly transactions actually
-  appear over PSD2 — worth measuring early rather than designing around blind.
-- **How is a period labelled in the UI** when it runs the 27th to the 26th —
-  "September", or the actual date range?

@@ -53,8 +53,9 @@ need no rules at all:
 - **Volatility is self-smoothing.** Underspend twice and the money is there for
   Christmas, with no Christmas pocket.
 - **Negative months need no absorb rule.** See §4.2.
-- **Errors self-correct with one period of lag.** Underestimate groceries and
-  this period's income absorbs it; next period's free-to-spend is smaller.
+- **Errors self-correct with one period of lag.** A required expense lands higher
+  than usual and this period's income absorbs it; next period's free-to-spend is
+  correspondingly smaller.
 
 ### 2.3 Rollover
 
@@ -132,8 +133,7 @@ and self-corrects; a recurring one that always lands on the wrong side causes a
 permanent offset.**
 
 The fix is to move the boundary, not the transactions: a period runs from the
-**rollover day** to the rollover day (e.g. the 27th → the 26th) and is labelled by
-the calendar month it mostly covers. One configuration value handles both the
+**rollover day** to the rollover day (e.g. the 27th → the 26th). One configuration value handles both the
 salary and the end-of-month rent, with no per-transaction dates to maintain.
 
 Per-transaction overrides are deferred (§5).
@@ -166,9 +166,15 @@ by hand with a virtual transaction. The app shows how full it is against its tar
   A buffer pocket needs no separate real account, and a real savings account
   needs no pocket.
 
-This is how savings work: rather than a savings pocket, make a real standing
-transfer to a hidden savings account. It leaves the balance, so it is deducted
-before the residual, which is the whole point — and it needs no pocket machinery.
+Savings can be done either way, and it is the user's choice:
+
+- **A savings pocket.** The money stays in the tracked account but is reserved, so
+  it is deducted from free-to-spend. Nothing has to leave the bank.
+- **A real transfer to a hidden savings account.** It leaves the balance, so it is
+  deducted for free, with no pocket to maintain.
+
+Both deduct savings before the residual, which is the point. The pocket is easier
+to change your mind about; the real transfer is harder to raid.
 
 ### 4.5 Pocket underfunding
 
@@ -229,11 +235,9 @@ several are hard prerequisites, not preferences.
 1. **Income reliably exceeds required expenses**, with enough headroom that a
    period's surplus is a meaningful amount of money. If the surplus is routinely
    near zero there is no free-to-spend budget and the app has nothing to say.
-2. **Roughly one period of expenses already in the bank.** This is a *cash*
-   prerequisite, not a data one — importing history does not create the buffer.
-   This is not an accident of the design, it is the point: you only spend on fun
-   when you are certain the money is there, and you are certain when it is last
-   period's surplus.
+2. **Roughly one period of expenses already in the bank.** This is not an accident
+   of the design, it is the point: you only spend on fun when you are certain the
+   money is there, and you are certain when it is last period's surplus.
 3. **No high-interest revolving debt.** "Spend everything that's left" is the
    wrong advice while credit card debt compounds.
 4. **A buffer large enough for the worst realistic surprise.** Since
@@ -277,7 +281,7 @@ The official names. Used in the docs, the UI, and the code.
 
 | Term | Meaning |
 |---|---|
-| **Period** | one budget month; runs rollover day to rollover day, labelled by the calendar month it mostly covers |
+| **Period** | one budget month; runs rollover day to rollover day, and is shown as its actual date range rather than a month name |
 | **Rollover day** | the day of month on which one period ends and the next begins |
 | **Rollover** | the event at a rollover day, when free-to-spend is recomputed and automatic virtual transactions are made |
 
@@ -302,16 +306,3 @@ The official names. Used in the docs, the UI, and the code.
 | **Target** | how much the pocket should hold |
 | **Due date** | when it needs to be full (optional), with an optional recurrence |
 | **Monthly contribution** | the amount the pocket receives each rollover, as an automatic virtual transaction |
-
----
-
-## 8. Open questions
-
-- Which rollover day? To be picked from the actual transaction history, looking
-  for a reliable gap between the last debits of one month and the salary.
-- What is the primary display: *remaining* plus *projected next period*? A daily
-  burn-down?
-- Should the app say something when free-to-spend drifts upward over several
-  periods (i.e. "you could be saving more")?
-- How much classification can realistically be automated from German bank
-  exports (merchant name, Verwendungszweck)?
