@@ -34,7 +34,7 @@ project.
 
 ---
 
-## M0 — Skeleton
+## M0 — Skeleton — *done*
 
 **Goal:** a repository that runs its own tests.
 
@@ -46,9 +46,14 @@ still starts.
 
 **Not yet:** anything with behaviour.
 
+*Outcome:* done. `store/`, `importers/` and `api/` were not created empty — they
+arrive with their milestones. The Nuxt dev server does still start from `web/`,
+but its 2023 dependencies need `yarn install --ignore-engines` on current Node.
+Whether to upgrade Nuxt or rebuild the frontend is a decision for M4.
+
 ---
 
-## M1 — Engine and a demo year
+## M1 — Engine and a demo year — *done*
 
 **Goal:** see twelve periods of free-to-spend, from generated data.
 
@@ -67,6 +72,13 @@ case it exists for (salary arriving before the month it pays for).
 **Done when:** you can read a year of numbers and say whether they feel right.
 
 **Not yet:** no database, no API, no UI, no pockets.
+
+*Outcome:* done. `python3 -m scripts.demo_year` prints the table. The demo year
+deliberately contains an annual insurance premium, a windfall, a car repair, and
+a holiday saved up for across two lean periods; `--splurge` dials that holiday up
+until a period is overspent, so the negative case can be summoned rather than
+waited for. The salary-timing case has a regression test that states the bug the
+rollover day prevents, by comparing against a calendar-month boundary.
 
 ---
 
