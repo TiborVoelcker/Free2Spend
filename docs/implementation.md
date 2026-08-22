@@ -19,7 +19,7 @@ accumulator, the app needs almost no stored state.
 - accounts (tracked / hidden)
 - the transaction log, with each transaction's class
 - pocket configuration
-- materialized contributions and manual moves (§5.3)
+- virtual transactions, automatic and manual (§5.3)
 - balance anchors from imports (§3.3)
 
 **Derived on demand, never stored:**
@@ -46,7 +46,7 @@ Roughly in dependency order, not build order:
 
 1. accounts and a transaction log
 2. import (§3)
-3. periods and the cutover day (§4)
+3. periods and the rollover day (§4)
 4. classification (§6)
 5. pockets (§5)
 6. the numbers and their display (§7)
@@ -57,27 +57,43 @@ Roughly in dependency order, not build order:
 
 ### 3.1 Channels, and the staleness problem
 
-Two options were on the table: online banking access, or importing PDF
-statements.
-
 There is a hard constraint that decides this: **the product is a live number.**
-If the data is a month old, "remaining" is a month old, and the app is useless
-for the decision it exists to support — *can I buy this right now?* A monthly PDF
-statement cannot deliver that.
+If the data is a month old, "remaining free-to-spend" is a month old, and the app
+is useless for the decision it exists to support — *can I buy this right now?* A
+monthly PDF statement cannot deliver that, so PDF is not the easy option, it is
+the option that does not work.
 
-So the channel needs to support **frequent, low-friction refresh**. In rough
-order of preference:
+**Decision: PSD2 bank access via Enable Banking** as the ongoing channel.
 
-1. **Direct bank access** (FinTS/HBCI or a PSD2 API) — refresh on demand, real
-   transaction identifiers, real reported balances. Harder to build, and per-bank.
-2. **CSV export from online banking** — a manual download, but takes seconds and
-   can be done weekly. Generalises far better than PDF across banks.
-3. **PDF statements** — easy to obtain, but monthly and hard to parse reliably.
-   Useful mainly for the initial history backfill.
+This has consequences worth stating up front, because they shape the whole build:
 
-A reasonable split: **PDF or CSV for the one-off history backfill, and the best
-available live channel for ongoing refresh.** The importer should be written
-against a neutral internal shape so channels are interchangeable.
+- **A backend is mandatory.** PSD2 aggregators authenticate the *application*
+  with a private key. That key cannot live in a browser, so a purely client-side
+  app is off the table regardless of any other preference. See `stack.md`.
+- **Consent expires.** PSD2 requires periodic re-authentication. Reconnecting is
+  a recurring event, not a one-off setup step, so the app must hold last-known
+  data, keep working while disconnected, and surface a clear "reconnect" state
+  rather than erroring.
+- **Build against the sandbox first.** The strategy can be validated long before
+  a real bank is ever connected.
+- **Check bank coverage before committing.** Whether the specific bank is
+  supported, and what it exposes, is a prerequisite to verify — not an assumption.
+
+### 3.1.1 History depth, and why it barely matters
+
+PSD2 access typically returns a limited window of history (often around 90 days).
+This sounds like a problem for bootstrapping and mostly is not, because
+**free-to-spend needs almost no history to be correct**: the balance at the last
+rollover, plus this period's transactions. One period is enough for the app to
+function fully.
+
+Longer history is wanted for two secondary things: picking the rollover day
+(§4.1) and any retrospective analysis. Both are one-off or optional.
+
+So a CSV or PDF import path is not dead — it is demoted to exactly one job:
+**the initial backfill**, run once, from an online-banking export. It never needs
+to be reliable enough for ongoing use, which removes most of the reason it was
+hard.
 
 ### 3.2 Import identity and deduplication
 
@@ -119,7 +135,7 @@ one subtraction per import.
 
 ## 4. Periods
 
-### 4.1 The cutover day
+### 4.1 The rollover day
 
 A single configuration value: the day of month at which one period ends and the
 next begins. A period is labelled by the calendar month it mostly covers.
@@ -130,14 +146,27 @@ their dates individually. See `strategy.md` §4.1 for why — briefly: only
 offset, and both the culprits (salary in, rent out) cluster in the same few days
 at the end of the month, so one boundary shift catches them together.
 
-The cutover day should be picked by looking at the actual transaction history for
+The rollover day should be picked by looking at the actual transaction history for
 a reliable gap. It needs a margin: if the salary sometimes lands a day early, the
-cutover has to sit safely before the earliest it has ever arrived.
+rollover day has to sit safely before the earliest it has ever arrived.
+
+**This setting has to explain itself.** It is the least intuitive option in the
+app, and getting it wrong is not a cosmetic error — a rollover day on the wrong
+side of the salary overstates free-to-spend by a full salary, every period,
+permanently. The configuration screen should:
+
+- state the consequence in plain words, with the user's own numbers ("your salary
+  arrives around the 29th; a rollover day after that would count it as last
+  period's leftover")
+- **suggest a day** by analysing the transaction history for the widest reliable
+  gap before the recurring income, rather than asking cold
+- show which recurring transactions land in which period under the chosen day, so
+  the effect is visible before it is saved
 
 ### 4.2 No scheduled work
 
 Rollover is not an event that needs to fire on time. "Which period is today in"
-is a pure function of the date and the cutover day, and every number is derived.
+is a pure function of the date and the rollover day, and every number is derived.
 The only thing that needs to *happen* at a rollover is materializing pocket
 contributions (§5.3), and that can be done lazily on next app load: "materialize
 contributions for any period that has begun since we last looked."
@@ -170,20 +199,36 @@ So a pocket's due date should carry an optional **recurrence** (yearly, quarterl
 …). When the pocket is depleted (§5.4), the due date rolls forward and the
 contribution recomputes automatically. The pocket becomes fire-and-forget.
 
-### 5.3 Contributions are materialized, not computed on the fly
+### 5.3 Virtual transactions
 
-The one place stored state is genuinely required.
+A pocket's monthly contribution is not applied by recomputing the pocket's balance
+from its configuration. At each rollover the app **writes an automatic virtual
+transaction** into the pocket, and the pocket's balance is the sum of the virtual
+transactions and pocket payments against it.
 
-If contributions were derived from the pocket's current configuration, then
-raising a pocket's monthly contribution today would silently rewrite every past
-period as though it had always been that amount. History would change under the
-user.
+This is the one place stored state is genuinely required, and the reason is not
+history-keeping — it is that a configuration change must be **forward-looking**
+rather than retroactive.
 
-So at each rollover, contributions are **written down as records**. Configuration
-changes then affect the future only, and past periods stay true to what was
-actually decided at the time.
+Worked example. A pocket has had a €50 contribution for 10 periods and holds €500.
+The user raises it to €80.
 
-Manual moves (§5.5) are stored the same way, for the same reason.
+- *Balance derived from configuration:* the pocket becomes `80 × 10` = €800. It
+  jumps by €300 immediately, and free-to-spend drops by €300 immediately, because
+  the pocket now claims money was set aside that never was.
+- *Balance derived from written-down virtual transactions:* the pocket still holds
+  €500, and grows by €80 from the next rollover. Free-to-spend drops by €30 next
+  period.
+
+The second is what a user expects. Historic free-to-spend staying true is a side
+effect, not the motivation.
+
+Manual virtual transactions (§5.5) are the same kind of record, differing only in
+who created them.
+
+**Idempotency.** Because automatic virtual transactions are generated lazily on
+app load (§4.2) rather than by a scheduled job, they must be keyed by pocket and
+period, so two loads in quick succession cannot create the contribution twice.
 
 ### 5.4 Depletion: detection plus a prompt
 
@@ -196,12 +241,17 @@ Two mechanisms, because pattern matching alone is not reliable enough for
 something with a permanent consequence:
 
 - **Matching rules** on the pocket — counterparty and/or reference text, with an
-  amount range. A matching transaction is proposed as that pocket's payment.
+  amount range. A matching transaction is *proposed* as that pocket's payment.
+
+  The transaction's class remains the single source of truth. Pocket rules never
+  write it directly; they pre-fill the review queue and the user confirms. That
+  keeps exactly one code path for "which pocket did this deplete", and means
+  classification by hand always works even when no rule exists.
 - **A due-date prompt.** A pocket whose due date has passed while it is still
   full is almost certainly a missed payment. Asking is a far stronger safety net
   than any matching heuristic, and it costs nothing to implement.
 
-### 5.5 Manual moves
+### 5.5 Manual virtual transactions
 
 The user must be able to move money virtually, in both directions:
 
@@ -210,7 +260,7 @@ The user must be able to move money virtually, in both directions:
 - free-to-spend → pocket (put something aside this period)
 - pocket → pocket
 
-These are stored records, dated into a period.
+Same record type as the automatic ones, dated into a period.
 
 ### 5.6 Initial balances
 
@@ -261,7 +311,7 @@ expense, by definition (`strategy.md` §4.4).
 For the current period:
 
 ```
-free-to-spend = balance(at last cutover) − pockets(at last cutover, after contributions)
+free-to-spend = balance(at last rollover) − pockets(at last rollover, after contributions)
 remaining     = free-to-spend − sum(fun transactions in this period)
 ```
 
@@ -271,8 +321,8 @@ never write to the ledger:
 ```
 projected = balance(now)
           − pockets(now)
-          + expected recurring income before the next cutover
-          − expected recurring required expenses before the next cutover
+          + expected recurring income before the next rollover
+          − expected recurring required expenses before the next rollover
           − next period's contributions
 ```
 
@@ -299,14 +349,10 @@ What the user actually does, which should drive UI priorities:
 
 ## 9. Open decisions
 
-- **Live channel:** direct bank access or manual CSV export? This is the single
-  biggest scope decision, and §3.1 argues it decides whether the product works at
-  all. A pragmatic answer may be to start with CSV and treat direct access as an
-  upgrade behind the same internal shape.
-- **Between imports the number is stale.** Accept it, or allow a quick manual
-  entry of a fun expense that later reconciles against the import? Accepting it
-  is simpler, but weekly imports mean the number can be days out of date at
-  exactly the moment it is consulted.
+- **Between refreshes the number is stale.** Accept it, or allow a quick manual
+  entry of a fun expense that later reconciles against the next refresh? Accepting
+  it is simpler. How bad this is depends on how quickly transactions actually
+  appear over PSD2 — worth measuring early rather than designing around blind.
 - **Multiple tracked accounts in the first version, or one?** One is meaningfully
   simpler (no transfer class needed at all).
 - **How is a period labelled in the UI** when it runs the 27th to the 26th —

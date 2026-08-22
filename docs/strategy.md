@@ -58,10 +58,10 @@ need no rules at all:
 
 ### 2.3 Rollover
 
-At each cutover:
+At each rollover:
 
 1. take the balance across all tracked accounts
-2. apply this period's pocket contributions (raising `pockets`)
+2. apply this period's automatic virtual transactions into pockets (raising `pockets`)
 3. `free-to-spend = balance − pockets`
 
 That is the entire periodic logic. There are no snapshots to keep and no
@@ -132,7 +132,7 @@ and self-corrects; a recurring one that always lands on the wrong side causes a
 permanent offset.**
 
 The fix is to move the boundary, not the transactions: a period runs from the
-**cutover day** to the cutover day (e.g. the 27th → the 26th) and is labelled by
+**rollover day** to the rollover day (e.g. the 27th → the 26th) and is labelled by
 the calendar month it mostly covers. One configuration value handles both the
 salary and the end-of-month rent, with no per-transaction dates to maintain.
 
@@ -154,8 +154,8 @@ timing**: tax settlements, utility reconciliation (Nebenkostenabrechnung), car
 repairs, medical bills, replacing things that broke. These are deliberately *not*
 given their own pockets, so the buffer is the only thing standing behind them.
 
-No automatic refill. Either a configured contribution, or the user moves money in
-by hand. The app shows how full it is against its target.
+No automatic refill. Either a monthly contribution, or the user moves money in
+by hand with a virtual transaction. The app shows how full it is against its target.
 
 ### 4.4 Tracked and hidden accounts
 
@@ -206,7 +206,7 @@ them as bugs.
 |---|---|---|
 | **Transitory money** — group dinners, fronted work expenses, deposits | Nets out within a period or two; margins are loose enough | Low. A flag on a transaction. |
 | **Payment float** — bought in one period, settles in the next | Everything is debit; float is near zero | Low, *provided* the period boundary (§4.1) exists from the start |
-| **Per-transaction period overrides** | The cutover day handles the recurring cases, which are the ones that matter | Low |
+| **Per-transaction period overrides** | The rollover day handles the recurring cases, which are the ones that matter | Low |
 | **Debt as a first-class concept** | A required expense, or a pocket | Medium — would need balance tracking |
 | **Pocket priority when underfunded** | §4.5 gives the same information without it | Low |
 | **Automatic buffer refill** | A negative number conveys the same urgency | Low |
@@ -271,15 +271,15 @@ The official names. Used in the docs, the UI, and the code.
 | **Pocket** | a virtual sub-balance reserved for a purpose |
 | **Buffer** | the pocket for unplanned required expenses (the safety net) |
 | **Free-to-spend** | `balance − pockets`, fixed at the start of a period |
-| **Remaining** | free-to-spend minus the fun spending so far this period |
+| **Remaining free-to-spend** | free-to-spend minus the fun spending so far this period. The number the user actually looks at. |
 
 ### Time
 
 | Term | Meaning |
 |---|---|
-| **Period** | one budget month; runs cutover to cutover, labelled by the calendar month it mostly covers |
-| **Cutover day** | the day of month on which one period ends and the next begins |
-| **Rollover** | the event at a cutover, when free-to-spend is recomputed |
+| **Period** | one budget month; runs rollover day to rollover day, labelled by the calendar month it mostly covers |
+| **Rollover day** | the day of month on which one period ends and the next begins |
+| **Rollover** | the event at a rollover day, when free-to-spend is recomputed and automatic virtual transactions are made |
 
 ### Movements
 
@@ -291,21 +291,23 @@ The official names. Used in the docs, the UI, and the code.
 | **Fun** | paid out of free-to-spend |
 | **Pocket payment** | a real transaction that draws down a pocket |
 | **Transfer** | movement between two tracked accounts; no effect on anything |
-| **Contribution** | a recurring virtual move into a pocket, applied at rollover |
-| **Move** | a manual virtual transfer between pockets and free-to-spend |
+| **Virtual transaction** | a movement of money between pockets and free-to-spend that has no counterpart at the bank |
+| — **automatic** | generated at rollover from a pocket's monthly contribution setting |
+| — **manual** | made deliberately by the user |
 
 ### Pocket settings
 
 | Term | Meaning |
 |---|---|
 | **Target** | how much the pocket should hold |
-| **Due date** | when it needs to be full (optional) |
+| **Due date** | when it needs to be full (optional), with an optional recurrence |
+| **Monthly contribution** | the amount the pocket receives each rollover, as an automatic virtual transaction |
 
 ---
 
 ## 8. Open questions
 
-- Which cutover day? To be picked from the actual transaction history, looking
+- Which rollover day? To be picked from the actual transaction history, looking
   for a reliable gap between the last debits of one month and the salary.
 - What is the primary display: *remaining* plus *projected next period*? A daily
   burn-down?
