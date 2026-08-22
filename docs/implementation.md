@@ -76,8 +76,9 @@ This has consequences worth stating up front, because they shape the whole build
   rather than erroring.
 - **Build against the sandbox first.** The strategy can be validated long before
   a real bank is ever connected.
-- **Check bank coverage before committing.** Whether the specific bank is
-  supported, and what it exposes, is a prerequisite to verify — not an assumption.
+- **Bank coverage: verified.** The author's bank is supported by Enable Banking.
+  What it actually exposes (history depth, balance types, update latency) is
+  still to be measured.
 
 ### 3.1.1 History depth, and why it barely matters
 
@@ -294,6 +295,9 @@ afterthought, not the other way round.
 
 ### 6.3 Transfers between tracked accounts
 
+**Not needed in the first version**, which tracks a single account. Recorded here
+because it is the first thing a second account requires.
+
 If the user holds two tracked accounts, money moving between them must be classed
 as **transfer** or it reads as an expense on one side and income on the other,
 distorting nothing in the balance but confusing everything else.
@@ -333,7 +337,25 @@ fine: it is the less important of the two.
 
 ---
 
-## 8. The ritual
+## 8. Demo mode
+
+Everything above is designed so the app can run end to end **with no bank
+connection at all**, against generated data.
+
+This is not a testing convenience, it is the fastest route to the actual goal —
+finding out whether the strategy holds up. A generator producing a plausible
+German year (salary landing at the end of the preceding month, rent, weekly
+groceries, an annual insurance premium, a windfall, a nasty surprise) means:
+
+- the strategy can be eyeballed across twelve periods before any real data exists
+- awkward cases — a negative period, a pocket depleting, an underfunded rollover
+  — can be summoned on demand instead of waited for
+- the UI can be built and judged against realistic numbers from day one
+
+Demo data is therefore a **shipped module**, not a test fixture. See `stack.md`
+§8.
+
+## 9. The ritual
 
 What the user actually does, which should drive UI priorities:
 
@@ -347,13 +369,11 @@ What the user actually does, which should drive UI priorities:
 
 ---
 
-## 9. Open decisions
+## 10. Open decisions
 
 - **Between refreshes the number is stale.** Accept it, or allow a quick manual
   entry of a fun expense that later reconciles against the next refresh? Accepting
   it is simpler. How bad this is depends on how quickly transactions actually
   appear over PSD2 — worth measuring early rather than designing around blind.
-- **Multiple tracked accounts in the first version, or one?** One is meaningfully
-  simpler (no transfer class needed at all).
 - **How is a period labelled in the UI** when it runs the 27th to the 26th —
   "September", or the actual date range?
