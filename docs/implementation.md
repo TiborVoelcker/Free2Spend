@@ -142,7 +142,13 @@ one subtraction per import.
 ### 4.1 The rollover day
 
 A single configuration value: the day of month at which one period ends and the
-next begins. A period is shown as its actual date range, not a month name.
+next begins, counted either from the start of the month (1..31, clamped in short
+months) or from its end (-1 is the last day, -2 the day before it). A period is
+shown as its actual date range, not a month name.
+
+The relative form matters when income arrives on the last banking day rather than
+a fixed date: a fixed day drifts against the month end as month lengths change,
+a relative one does not.
 
 This replaces the alternative of detecting recurring transactions and shifting
 their dates individually. See `strategy.md` §4.1 for why — briefly: only
@@ -151,8 +157,9 @@ offset, and both the culprits (salary in, rent out) cluster in the same few days
 at the end of the month, so one boundary shift catches them together.
 
 The rollover day should be picked by looking at the actual transaction history for
-a reliable gap. It needs a margin: if the salary sometimes lands a day early, the
-rollover day has to sit safely before the earliest it has ever arrived.
+a reliable gap. It needs a margin either way: if the salary sometimes lands a day
+early, the rollover day has to sit safely before the earliest it has ever
+arrived.
 
 **This setting has to explain itself.** It is the least intuitive option in the
 app, and a rollover day on the wrong side of the salary overstates free-to-spend

@@ -1,5 +1,10 @@
 """Periods: the budget month, which runs rollover day to rollover day.
 
+The rollover day may be given relative to the end of the month: -1 is the last
+day, -2 the day before it. Salaries often land on the last banking day rather
+than a fixed date, and a relative rollover day tracks that instead of drifting
+against it as month lengths change.
+
 A period is shown as its actual date range, not a month name
 (docs/strategy.md section 7).
 """
@@ -32,8 +37,15 @@ class Period:
 
 
 def _validate(rollover_day: int) -> None:
-    if not 1 <= rollover_day <= 31:
-        raise ValueError(f"rollover_day must be between 1 and 31, got {rollover_day}")
+    """A rollover day is 1..31 counting forward, or -1..-28 counting back.
+
+    -28 is the furthest a negative day can go and still mean the same thing in
+    February as in a 31 day month.
+    """
+    if not (1 <= rollover_day <= 31 or -28 <= rollover_day <= -1):
+        raise ValueError(
+            f"rollover_day must be 1..31 or -1..-28, got {rollover_day}"
+        )
 
 
 def _start_on_or_before(moment: date, rollover_day: int) -> date:

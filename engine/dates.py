@@ -7,13 +7,20 @@ from datetime import date
 
 
 def clamp_day(year: int, month: int, day: int) -> date:
-    """The given day of the month, clamped to the last day if the month is shorter.
+    """A day of the month, counted from either end.
 
-    A rollover day of 31 therefore lands on 28 or 29 in February, rather than
-    being an error.
+    A positive day counts from the start and clamps to the last day of a shorter
+    month, so 31 lands on 28 or 29 in February rather than being an error.
+
+    A negative day counts back from the end, as list indexing does: -1 is the
+    last day of the month, -2 the day before it. That tracks the month end
+    instead of a fixed number, which is what a rollover day placed relative to
+    month end needs when salaries land on the last banking day.
     """
     last = calendar.monthrange(year, month)[1]
-    return date(year, month, min(day, last))
+    if day < 0:
+        day = last + 1 + day
+    return date(year, month, max(1, min(day, last)))
 
 
 def add_month(year: int, month: int) -> tuple[int, int]:

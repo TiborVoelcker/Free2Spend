@@ -41,6 +41,9 @@ Useful variations:
 # calendar months instead of a rollover day, showing the salary-timing problem
 python3 -m scripts.demo_year --rollover-day 1
 
+# a rollover day relative to the month end: -1 is the last day, -3 the third from last
+python3 -m scripts.demo_year --rollover-day -3
+
 # dial the holiday up past that period's free-to-spend to see an overspent period
 python3 -m scripts.demo_year --splurge 480000
 
