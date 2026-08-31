@@ -73,12 +73,9 @@ case it exists for (salary arriving before the month it pays for).
 
 **Not yet:** no database, no API, no UI, no pockets.
 
-*Outcome:* done. `python3 -m scripts.demo_year` prints the table. The demo year
-deliberately contains an annual insurance premium, a windfall, a car repair, and
-a holiday saved up for across two lean periods; `--splurge` dials that holiday up
-until a period is overspent, so the negative case can be summoned rather than
-waited for. The salary-timing case has a regression test that states the bug the
-rollover day prevents, by comparing against a calendar-month boundary.
+*Outcome:* done, then partly superseded. The engine and the salary-timing
+regression test remain; the demo year generator and its script were removed at M2
+in favour of a committed export in a real bank's format (`stack.md` §8).
 
 ---
 
@@ -86,13 +83,12 @@ rollover day prevents, by comparing against a calendar-month boundary.
 
 **Goal:** the same table, on real numbers.
 
-**Build:** the CSV backfill importer, and a report that prints where recurring
-income landed so a rollover day can be chosen against it.
+**Build:** the CSV backfill importer, and a report over the imported ledger.
 
 *No suggester.* The original plan had one; the review of PR #5 parked
 "suggest a rollover day from the history" in `v2-ideas.md` as too much for the
-first build. Printing the observed dates, absolute and relative to the month end,
-gives the same decision at a fraction of the cost.
+first build. A sensible default plus a warning when the income per period looks
+wrong gives the same decision for a fraction of the code.
 
 **Proves:** less than this plan first claimed, and the correction matters.
 
@@ -116,9 +112,14 @@ and chosen a rollover day from the data.
 
 *Outcome:* built against a real ING export format. `python3 -m
 scripts.import_report <csv>` reads the export, verifies its running balance
-against every row, derives the window's opening balance, prints where recurring
-income landed, and renders the table. What a real export contains is recorded in
+against every row, derives the window's opening and closing balances as anchors,
+and renders the table. What a real export contains is recorded in
 `implementation.md` section 3.1.2.
+
+The rollover day defaults to -5, five days before the month end, and the report
+warns when any period's income is more than 50% away from the usual — the
+symptom of a rollover day on the wrong side of the salary, which is otherwise
+silent and permanent.
 
 ---
 

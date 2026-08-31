@@ -353,20 +353,16 @@ fine: it is the less important of the two.
 ## 8. Demo mode
 
 Everything above is designed so the app can run end to end **with no bank
-connection at all**, against generated data.
+connection at all**, against a committed export in a real bank's format
+(`tests/fixtures/`).
 
-This is not a testing convenience, it is the fastest route to the actual goal —
-finding out whether the strategy holds up. A generator producing a plausible
-German year (salary landing at the end of the preceding month, rent, weekly
-groceries, an annual insurance premium, a windfall, a nasty surprise) means:
+This is not a testing convenience, it is what lets the UI be built and judged
+against realistic numbers before any account is connected.
 
-- the strategy can be eyeballed across twelve periods before any real data exists
-- awkward cases — a negative period, a pocket depleting, an underfunded rollover
-  — can be summoned on demand instead of waited for
-- the UI can be built and judged against realistic numbers from day one
-
-Demo data is therefore a **shipped module**, not a test fixture. See `stack.md`
-§8.
+The fixture is unclassified, so the fun and required split is not exercised by
+it until classification is storable (M5), at which point classification is added
+on top of the fixture. See `stack.md` §8 for why a generator was removed in
+favour of a file.
 
 ## 9. The ritual
 

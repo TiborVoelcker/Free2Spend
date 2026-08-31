@@ -1,14 +1,8 @@
 from datetime import date
 
-from conftest import fun, txn
+from conftest import anchor, fun, ledger, txn
 
-from engine import (
-    balance_before,
-    free_to_spend,
-    fun_spend,
-    period_containing,
-    remaining_free_to_spend,
-)
+from engine import period_containing
 
 PERIOD = period_containing(date(2026, 3, 5), 27)  # 2026-02-27 to 2026-03-26
 
@@ -19,51 +13,100 @@ def d(iso: str) -> date:
 
 def test_balance_before_excludes_the_day_itself():
     """The balance as a day begins, so a rollover does not count its own day."""
-    ledger = [txn("2026-03-01", 100), txn("2026-03-02", 50)]
-    assert balance_before(ledger, d("2026-03-02")) == 10_000
-    assert balance_before(ledger, d("2026-03-03")) == 15_000
+    book = ledger(txn("2026-03-01", 100), txn("2026-03-02", 50))
+    assert book.balance_before(d("2026-03-02")) == 10_000
+    assert book.balance_before(d("2026-03-03")) == 15_000
 
 
 def test_an_empty_ledger_is_zero_everywhere():
-    assert balance_before([], d("2026-03-05")) == 0
-    assert free_to_spend([], PERIOD) == 0
-    assert fun_spend([], PERIOD) == 0
-    assert remaining_free_to_spend([], PERIOD) == 0
+    book = ledger()
+    assert not book
+    assert book.balance_before(d("2026-03-05")) == 0
+    assert book.free_to_spend(PERIOD) == 0
+    assert book.remaining_free_to_spend(PERIOD) == 0
+    assert book.summarise(27, today=d("2026-03-05")) == []
 
 
 def test_required_spending_does_not_touch_this_period_free_to_spend():
     """Required spending only moves the balance; it shows up at the next rollover."""
-    without = [txn("2026-02-20", 500)]
-    with_rent = [*without, txn("2026-03-01", -300, "rent")]
-    assert free_to_spend(with_rent, PERIOD) == free_to_spend(without, PERIOD) == 50_000
-    assert remaining_free_to_spend(with_rent, PERIOD) == remaining_free_to_spend(without, PERIOD)
+    without = ledger(txn("2026-02-20", 500))
+    with_rent = ledger(txn("2026-02-20", 500), txn("2026-03-01", -300, "rent"))
+    assert with_rent.free_to_spend(PERIOD) == without.free_to_spend(PERIOD) == 50_000
 
 
 def test_fun_spending_reduces_remaining_but_not_free_to_spend():
-    ledger = [txn("2026-02-20", 500), fun("2026-03-05", -120)]
-    assert free_to_spend(ledger, PERIOD) == 50_000
-    assert remaining_free_to_spend(ledger, PERIOD) == 38_000
+    book = ledger(txn("2026-02-20", 500), fun("2026-03-05", -120))
+    assert book.free_to_spend(PERIOD) == 50_000
+    assert book.remaining_free_to_spend(PERIOD) == 38_000
 
 
 def test_only_fun_inside_the_period_counts():
     """Either side of the boundary, and a refund that gives some back."""
-    ledger = [
+    book = ledger(
         fun("2026-02-26", -50),  # the day before the period opens
         fun("2026-03-05", -120),
         fun("2026-03-09", 45, "returned"),
         fun("2026-03-27", -50),  # the day the next period opens
-    ]
-    assert fun_spend(ledger, PERIOD) == 7_500
+    )
+    assert book.fun_spend(PERIOD) == 7_500
 
 
 def test_as_of_stops_the_count_part_way_through_a_period():
-    ledger = [txn("2026-02-20", 500), fun("2026-03-05", -120), fun("2026-03-20", -80)]
-    assert fun_spend(ledger, PERIOD, as_of=d("2026-03-10")) == 12_000
-    assert fun_spend(ledger, PERIOD, as_of=d("2026-03-25")) == 20_000
-    assert fun_spend(ledger, PERIOD) == 20_000
+    book = ledger(txn("2026-02-20", 500), fun("2026-03-05", -120), fun("2026-03-20", -80))
+    assert book.fun_spend(PERIOD, as_of=d("2026-03-10")) == 12_000
+    assert book.fun_spend(PERIOD) == 20_000
 
 
 def test_remaining_is_not_clamped_at_zero():
     """docs/strategy.md section 4.2: a negative number is the warning."""
-    ledger = [txn("2026-02-20", 100), fun("2026-03-05", -250)]
-    assert remaining_free_to_spend(ledger, PERIOD) == -15_000
+    book = ledger(txn("2026-02-20", 100), fun("2026-03-05", -250))
+    assert book.remaining_free_to_spend(PERIOD) == -15_000
+
+
+# --- anchors ---
+
+
+def test_an_anchor_is_the_balance_at_the_end_of_its_day():
+    book = ledger(txn("2026-03-05", -30), anchors=(anchor("2026-02-28", 500),))
+    assert book.balance_before(d("2026-03-05")) == 50_000
+    assert book.balance_before(d("2026-03-06")) == 47_000
+
+
+def test_transactions_before_an_anchor_are_not_counted_twice():
+    """The anchor already includes them; it is the balance, not an addition."""
+    book = ledger(
+        txn("2026-01-10", 900),
+        txn("2026-03-05", -30),
+        anchors=(anchor("2026-02-28", 500),),
+    )
+    assert book.balance_before(d("2026-03-06")) == 47_000
+
+
+def test_the_latest_anchor_before_the_moment_wins():
+    """It keeps the span of transactions being trusted as short as possible."""
+    book = ledger(
+        txn("2026-03-05", -30),
+        anchors=(anchor("2026-01-31", 100), anchor("2026-02-28", 500)),
+    )
+    assert book.balance_before(d("2026-03-06")) == 47_000
+
+
+def test_reconcile_is_quiet_when_the_transactions_explain_the_anchors():
+    book = ledger(
+        txn("2026-03-05", -30),
+        txn("2026-03-20", 80),
+        anchors=(anchor("2026-02-28", 500), anchor("2026-03-31", 550)),
+    )
+    assert book.reconcile() == []
+
+
+def test_reconcile_finds_a_missing_transaction():
+    """A discrepancy means transactions are missing, which is the whole point."""
+    book = ledger(
+        txn("2026-03-05", -30),
+        anchors=(anchor("2026-02-28", 500), anchor("2026-03-31", 550)),
+    )
+    (problem,) = book.reconcile()
+    assert problem.expected_cents == 47_000
+    assert problem.actual_cents == 55_000
+    assert problem.difference_cents == 8_000

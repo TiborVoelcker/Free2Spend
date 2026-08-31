@@ -1,14 +1,10 @@
-"""Rendering shared by the report scripts. Presentation only."""
+"""Rendering for the report scripts. Presentation only."""
 
 from __future__ import annotations
 
-import calendar
-from collections import defaultdict
 from collections.abc import Sequence
-from datetime import date
 
-from engine import Transaction, format_euros
-from engine.summary import PeriodSummary
+from engine import PeriodSummary, format_euros
 
 COLUMNS = [
     ("Period", 26, "<"),
@@ -21,13 +17,11 @@ COLUMNS = [
     ("Closing", 11, ">"),
 ]
 
-
-def header() -> str:
-    return "  ".join(f"{name:{align}{width}}" for name, width, align in COLUMNS)
+INCOME_TOLERANCE_PERCENT = 50
 
 
 def print_table(summaries: Sequence[PeriodSummary]) -> None:
-    line = header()
+    line = "  ".join(f"{name:{align}{width}}" for name, width, align in COLUMNS)
     print(line)
     print("-" * len(line))
     for summary in summaries:
@@ -47,8 +41,25 @@ def print_table(summaries: Sequence[PeriodSummary]) -> None:
         print(row + ("   <-- overspent" if summary.is_overspent else ""))
 
 
-def check(summaries: Sequence[PeriodSummary]) -> list[str]:
-    """The two things that would mean the engine is lying."""
+def odd_income(summaries: Sequence[PeriodSummary]) -> list[tuple[PeriodSummary, int]]:
+    """Periods whose income is far from the usual.
+
+    A period with no income, or with two salaries in it, is the symptom of a
+    rollover day on the wrong side of the salary — which is silent and
+    permanent, since it happens every month.
+    """
+    incomes = sorted(summary.income_cents for summary in summaries)
+    if len(incomes) < 3:
+        return []
+    median = incomes[len(incomes) // 2]
+    if median <= 0:
+        return []
+    low = median * (100 - INCOME_TOLERANCE_PERCENT) // 100
+    high = median * (100 + INCOME_TOLERANCE_PERCENT) // 100
+    return [(s, median) for s in summaries if not low <= s.income_cents <= high]
+
+
+def print_checks(summaries: Sequence[PeriodSummary]) -> bool:
     problems = []
     for summary in summaries:
         expected = (
@@ -64,81 +75,19 @@ def check(summaries: Sequence[PeriodSummary]) -> list[str]:
             problems.append(
                 f"{later.period.label}: free-to-spend is not the previous closing balance"
             )
-    return problems
 
+    for summary, median in odd_income(summaries):
+        problems.append(
+            f"{summary.period.label}: income is {format_euros(summary.income_cents)}, "
+            f"usually {format_euros(median)}. Check the rollover day is not splitting "
+            f"the salary from the month it pays for."
+        )
 
-def print_checks(summaries: Sequence[PeriodSummary]) -> bool:
-    problems = check(summaries)
     if problems:
-        print("PROBLEMS:")
+        print("Check:")
         for problem in problems:
             print(f"  - {problem}")
         return False
-    print("Checks pass: every period reconciles, and each free-to-spend is the")
-    print("previous period's closing balance.")
+    print("Checks pass: every period reconciles, each free-to-spend is the previous")
+    print("period's closing balance, and no period has unusual income.")
     return True
-
-
-def days_from_month_end(moment: date) -> int:
-    """-1 for the last day of the month, -2 for the day before it."""
-    return moment.day - calendar.monthrange(moment.year, moment.month)[1] - 1
-
-
-def _regular_payments(items: list[Transaction]) -> tuple[list[Transaction], list[Transaction]]:
-    """Split a payer's credits into the recurring ones and the one-offs.
-
-    A salary and an expense reimbursement often come from the same employer. If
-    the reimbursement is treated as part of the pattern, the earliest observed
-    payment date is wrong, and a rollover day chosen from it sits needlessly far
-    back in the month.
-    """
-    amounts = sorted(t.amount_cents for t in items)
-    typical = amounts[len(amounts) // 2]
-    tolerance = abs(typical) * 15 // 100
-    regular = [t for t in items if abs(t.amount_cents - typical) <= tolerance]
-    others = [t for t in items if abs(t.amount_cents - typical) > tolerance]
-    return regular, others
-
-
-def print_recurring_income(transactions: Sequence[Transaction], minimum: int = 3) -> None:
-    """Where the recurring income landed, so a rollover day can be chosen.
-
-    Facts only. Which day to pick, and how much margin to leave, is a judgement
-    the numbers inform rather than settle.
-    """
-    by_counterparty: dict[str, list[Transaction]] = defaultdict(list)
-    for transaction in transactions:
-        if transaction.amount_cents > 0:
-            by_counterparty[transaction.counterparty].append(transaction)
-
-    recurring = {}
-    set_aside = {}
-    for name, items in by_counterparty.items():
-        regular, others = _regular_payments(items)
-        months = {(t.booking_date.year, t.booking_date.month) for t in regular}
-        if len(months) >= minimum:
-            recurring[name] = sorted(regular, key=lambda t: t.booking_date)
-            set_aside[name] = others
-    if not recurring:
-        print("No recurring income found, so there is nothing to place a rollover day against.")
-        return
-
-    print("Recurring income")
-    for name, items in sorted(recurring.items(), key=lambda kv: -len(kv[1])):
-        amounts = {t.amount_cents for t in items}
-        amount = format_euros(next(iter(amounts))) if len(amounts) == 1 else "varying"
-        print(f"\n  {name} — {len(items)} payments of {amount}")
-        if set_aside[name]:
-            dates = ", ".join(t.booking_date.strftime("%d.%m") for t in set_aside[name])
-            print(f"    ignoring {len(set_aside[name])} one-off credit(s) from the same payer"
-                  f" ({dates})")
-        print(f"    booked           {'  '.join(t.booking_date.strftime('%d.%m') for t in items)}")
-
-        absolute = [t.booking_date.day for t in items]
-        relative = [days_from_month_end(t.booking_date) for t in items]
-        print(f"    day of month     {'  '.join(f'{d:5d}' for d in absolute)}")
-        print(f"    from month end   {'  '.join(f'{d:5d}' for d in relative)}")
-        print(
-            f"    earliest: day {min(absolute)} counting forward, "
-            f"{min(relative)} counting back from the month end"
-        )

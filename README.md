@@ -24,42 +24,27 @@ Read in this order:
 
 Milestones **M0 to M2**. There is no application yet, by design: the strategy is
 validated before the app is built (`docs/build-plan.md`). What exists is a pure
-engine, a demo data generator, an importer for ING CSV exports, and two scripts
-that print a period-by-period free-to-spend table.
+engine, an importer for ING CSV exports, and a script that prints a
+period-by-period free-to-spend table from one.
 
-## Running the demo report
+## Reporting on an export
 
 No dependencies, no database, no setup:
 
 ```bash
-python3 -m scripts.demo_year
+python3 -m scripts.import_report tests/fixtures/ing_sample.csv
+python3 -m scripts.import_report statement.csv --rollover-day 27
+python3 -m scripts.import_report statement.csv --help
 ```
 
-Useful variations:
+The rollover day defaults to **-5**: five days before the month end, counting
+back so it tracks the month end rather than drifting against it. The report
+warns if any period's income is more than 50% away from the usual, which is the
+symptom of a rollover day on the wrong side of the salary.
 
-```bash
-# calendar months instead of a rollover day, showing the salary-timing problem
-python3 -m scripts.demo_year --rollover-day 1
-
-# a rollover day relative to the month end: -1 is the last day, -3 the third from last
-python3 -m scripts.demo_year --rollover-day -3
-
-# dial the holiday up past that period's free-to-spend to see an overspent period
-python3 -m scripts.demo_year --splurge 480000
-
-python3 -m scripts.demo_year --help
-```
-
-## Reporting on a real export
-
-```bash
-python3 -m scripts.import_report path/to/Umsatzanzeige.csv
-python3 -m scripts.import_report statement.csv --rollover-day -3
-```
-
-Reads an ING export, verifies its running balance against every row, derives the
-window's opening balance, prints where recurring income landed so a rollover day
-can be chosen against it, and renders the table.
+It verifies the export's running balance against every row, records the window's
+opening and closing balances as anchors, and checks that the transactions between
+them explain the change.
 
 Nothing is classified at this stage, so every payment counts as required and
 free-to-spend is just the accumulating balance. The column that means something
@@ -77,7 +62,6 @@ python3 -m pytest
 
 ```
 engine/     pure functions. no I/O, no framework, no clock.
-demo/       generated demo data, so the app can run with no bank connection
 importers/  bank exports, normalised into the engine's shapes
 scripts/    command line entry points. the only layer here that does I/O.
 tests/
