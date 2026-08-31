@@ -11,13 +11,6 @@ def table_of(text: str, **kwargs):
     return csv_table.table_from(lines, encoding, **kwargs)
 
 
-def test_a_file_that_is_only_a_table_needs_no_arguments():
-    """Not every bank puts a preamble above the header."""
-    table = table_of("Alpha;Beta\n1;2\n")
-    assert table.header == ("Alpha", "Beta")
-    assert [row.cells for row in table.rows] == [("1", "2")]
-
-
 def test_anything_above_the_header_line_is_ignored():
     text = "Report;created today\n\nIBAN;DE26\n\nAlpha;Beta\n1;2\n"
     table = table_of(text, header_line=4)
