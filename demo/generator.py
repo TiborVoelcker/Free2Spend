@@ -17,6 +17,7 @@ The shape of the year is chosen to exercise the things that matter:
 from __future__ import annotations
 
 import random
+from dataclasses import replace
 from datetime import date, timedelta
 
 from engine.dates import add_month, clamp_day, subtract_month
@@ -254,7 +255,7 @@ def generate_year(
         )
         year, month = add_month(year, month)
 
-    first_period = period_containing(min(t.date for t in transactions), rollover_day)
+    first_period = period_containing(min(t.booking_date for t in transactions), rollover_day)
     transactions.append(
         Transaction(
             OPENING_BALANCE_ID,
@@ -265,12 +266,14 @@ def generate_year(
         )
     )
 
-    return sorted(transactions, key=lambda t: (t.date, t.id))
+    # The demo stands in for a user who has already classified their year.
+    transactions = [replace(t, reviewed=True) for t in transactions]
+    return sorted(transactions, key=lambda t: (t.booking_date, t.id))
 
 
 def last_date(transactions: list[Transaction]) -> date:
     """The most recent transaction date. Useful as `today` for a demo run."""
-    return max(t.date for t in transactions)
+    return max(t.booking_date for t in transactions)
 
 
 def first_budget_date(transactions: list[Transaction]) -> date:
@@ -280,4 +283,4 @@ def first_budget_date(transactions: list[Transaction]) -> date:
     section 3.3), which M1 has no representation for yet. It is not a budget
     event, so reporting should not begin with the period it happens to fall in.
     """
-    return min(t.date for t in transactions if t.id != OPENING_BALANCE_ID)
+    return min(t.booking_date for t in transactions if t.id != OPENING_BALANCE_ID)

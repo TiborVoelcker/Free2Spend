@@ -22,7 +22,7 @@ def txn(
     """
     return Transaction(
         id=f"t{next(_counter):04d}",
-        date=date.fromisoformat(day),
+        booking_date=date.fromisoformat(day),
         amount_cents=round(euros * 100),
         description=description,
         classification=classification,

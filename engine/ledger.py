@@ -20,7 +20,7 @@ def balance_before(transactions: Iterable[Transaction], moment: date) -> int:
     Transactions dated `moment` itself are excluded, so this is the balance as
     the day begins.
     """
-    return sum(t.amount_cents for t in transactions if t.date < moment)
+    return sum(t.amount_cents for t in transactions if t.booking_date < moment)
 
 
 def free_to_spend(transactions: Iterable[Transaction], period: Period) -> int:
@@ -47,9 +47,9 @@ def fun_spend(
     for transaction in transactions:
         if transaction.classification is not Classification.FUN:
             continue
-        if not period.contains(transaction.date):
+        if not period.contains(transaction.booking_date):
             continue
-        if as_of is not None and transaction.date > as_of:
+        if as_of is not None and transaction.booking_date > as_of:
             continue
         total -= transaction.amount_cents
     return total

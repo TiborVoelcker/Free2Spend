@@ -27,6 +27,16 @@ class PeriodSummary:
     closing_balance_cents: int
 
     @property
+    def surplus_cents(self) -> int:
+        """What this period hands to the next as free-to-spend.
+
+        Income less everything that left. This is the number the strategy turns
+        on, and the only informative one before anything is classified: with no
+        fun spending recorded, free-to-spend is simply the accumulated balance.
+        """
+        return self.income_cents - self.required_spend_cents - self.fun_spend_cents
+
+    @property
     def is_overspent(self) -> bool:
         return self.remaining_free_to_spend_cents < 0
 
@@ -39,7 +49,7 @@ def summarise_period(
     income = 0
     required = 0
     for transaction in transactions:
-        if not period.contains(transaction.date):
+        if not period.contains(transaction.booking_date):
             continue
         if transaction.classification is not Classification.REQUIRED:
             continue
@@ -78,7 +88,7 @@ def summarise(
     transactions = list(transactions)
     if not transactions:
         return []
-    first = min(t.date for t in transactions)
+    first = min(t.booking_date for t in transactions)
     if since is not None:
         first = max(first, since)
     if first > today:

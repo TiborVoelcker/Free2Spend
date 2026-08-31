@@ -28,14 +28,32 @@ class Transaction:
 
     `amount_cents` is negative for money leaving the account and positive for
     money arriving.
+
+    **Two dates.** `booking_date` is when the bank posted the entry, and so when
+    the balance changed; every calculation uses it. `value_date` (German
+    *Wertstellung*) is an interest-calculation date the bank also supplies. It is
+    stored for fidelity and deliberately touches nothing: assigning periods by
+    value date would make our derived balance disagree with the bank's on the
+    days the two differ, and the balance reconciliation in
+    docs/implementation.md section 3.3 would then fire spuriously.
+
+    There is no field for when the purchase actually happened. German exports do
+    not supply one as a column; for card payments it appears inside the purpose
+    text. That is the payment float question, deferred in docs/strategy.md
+    section 5.
     """
 
     id: str
-    date: date
+    booking_date: date
     amount_cents: int
     description: str
     counterparty: str = ""
     classification: Classification = Classification.REQUIRED
+    reviewed: bool = False
+    value_date: date | None = None
+    kind: str = ""
+    """The bank's own label for the entry, e.g. ING's Buchungstext. Free text,
+    never an enum: the set of values a bank uses is not knowable in advance."""
 
     @property
     def is_outflow(self) -> bool:

@@ -35,7 +35,7 @@ def test_salary_and_rent_land_in_the_period_they_pay_for():
     """The property the demo year exists to demonstrate."""
     transactions, results = summaries()
     for s in results[:-1]:
-        in_period = [t for t in transactions if s.period.contains(t.date)]
+        in_period = [t for t in transactions if s.period.contains(t.booking_date)]
         assert sum(1 for t in in_period if t.description == "Salary") == 1, s.period.label
         assert sum(1 for t in in_period if t.description == "Rent") == 1, s.period.label
 

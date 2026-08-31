@@ -15,27 +15,7 @@ from datetime import date, timedelta
 
 from demo.generator import first_budget_date, generate_year, last_date
 from engine import Classification, format_euros, period_containing, summarise
-
-COLUMNS = [
-    ("Period", 26, "<"),
-    ("Free-to-spend", 14, ">"),
-    ("Income", 11, ">"),
-    ("Required", 11, ">"),
-    ("Fun", 11, ">"),
-    ("Remaining", 12, ">"),
-    ("Closing", 11, ">"),
-]
-
-
-def _header() -> str:
-    cells = [f"{name:{align}{width}}" for name, width, align in COLUMNS]
-    return "  ".join(cells)
-
-
-def _row(values: list[str]) -> str:
-    cells = [f"{v:{align}{width}}" for v, (_, width, align) in zip(values, COLUMNS)]
-    return "  ".join(cells)
-
+from scripts import _report
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -84,28 +64,11 @@ def main() -> int:
     print(f"Demo year, rollover day {args.rollover_day}, {len(transactions)} transactions")
     print(f"Reporting as of {today.isoformat()}.")
     print()
-    print(_header())
-    print("-" * len(_header()))
-
-    for summary in summaries:
-        print(
-            _row(
-                [
-                    summary.period.label,
-                    format_euros(summary.free_to_spend_cents),
-                    format_euros(summary.income_cents),
-                    format_euros(summary.required_spend_cents),
-                    format_euros(summary.fun_spend_cents),
-                    format_euros(summary.remaining_free_to_spend_cents),
-                    format_euros(summary.closing_balance_cents),
-                ]
-            )
-            + ("   <-- overspent" if summary.is_overspent else "")
-        )
-
+    _report.print_table(summaries)
     print()
-    _print_checks(transactions, summaries, today)
-    return 0
+    _print_balance(transactions, today)
+    print()
+    return 0 if _report.print_checks(summaries) else 1
 
 
 def _end_of_last_complete_period(transactions, rollover_day: int) -> date:
@@ -121,38 +84,11 @@ def _end_of_last_complete_period(transactions, rollover_day: int) -> date:
     return current.start - timedelta(days=1)
 
 
-def _print_checks(transactions, summaries, today: date) -> None:
-    """Assert the two things that would mean the engine is lying."""
-    problems = []
-
-    for summary in summaries:
-        expected = (
-            summary.free_to_spend_cents
-            + summary.income_cents
-            - summary.required_spend_cents
-            - summary.fun_spend_cents
-        )
-        if expected != summary.closing_balance_cents:
-            problems.append(f"{summary.period.label}: closing balance does not reconcile")
-
-    for earlier, later in zip(summaries, summaries[1:]):
-        if earlier.closing_balance_cents != later.free_to_spend_cents:
-            problems.append(
-                f"{later.period.label}: free-to-spend is not the previous closing balance"
-            )
-
-    upto = [t for t in transactions if t.date <= today]
+def _print_balance(transactions, today: date) -> None:
+    upto = [t for t in transactions if t.booking_date <= today]
     total = sum(t.amount_cents for t in upto)
     fun = sum(t.amount_cents for t in upto if t.classification is Classification.FUN)
     print(f"Balance {format_euros(total)}, of which fun spending was {format_euros(-fun)}.")
-
-    if problems:
-        print("\nPROBLEMS:")
-        for problem in problems:
-            print(f"  - {problem}")
-    else:
-        print("Checks pass: every period reconciles, and each free-to-spend is the")
-        print("previous period's closing balance.")
 
 
 if __name__ == "__main__":

@@ -99,6 +99,31 @@ So a CSV or PDF import path is not dead — it is demoted to exactly one job:
 to be reliable enough for ongoing use, which removes most of the reason it was
 hard.
 
+### 3.1.2 What an ING export actually contains
+
+Measured against a real export (M2), not assumed:
+
+- **A running balance on every row.** Far better than the single balance anchor
+  section 3.3 assumes. The whole chain can be verified, which catches a misread
+  amount immediately, and the opening balance of the window is derivable exactly
+  as `first row's balance - first row's amount`. No other field states it.
+- **Only booked entries.** The preamble says pending entries (*vorgemerkte
+  Umsätze*) are excluded, so there is nothing that later changes or duplicates.
+- **The window is declared** (`Zeitraum;01.03.2026 - 31.08.2026`), which is
+  exactly the input range replacement (section 3.2) needs.
+- **Both dates, nearly always equal.** `Buchung` and `Wertstellungsdatum` differ
+  only occasionally, on card settlements around weekends. Booking date drives
+  every calculation; see `engine/model.py`.
+- **No purchase date as a column.** For card payments it is inside the purpose
+  text (`... KAUFUMSATZ 24.08 12.99 ...`), recoverable by pattern but not
+  structured. This confirms payment float (docs/strategy.md section 5) stays
+  deferred rather than being free to pick up.
+- **`Buchungstext` is free text, not an enum.** Observed: Gehalt/Rente,
+  Echtzeitüberweisung, Lastschrift, Gutschrift, Gutschrift Echtzeitüberweisung,
+  Barabhebung — and the set is not knowable in advance, so it is stored as a
+  string.
+- **The header row repeats `Währung`**, so columns are located by position.
+
 ### 3.2 Import identity and deduplication
 
 The user will re-import overlapping ranges. Getting this wrong either duplicates

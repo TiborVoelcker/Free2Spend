@@ -22,10 +22,10 @@ Read in this order:
 
 ## Current state
 
-Milestones **M0 and M1**. There is no application yet, by design: the strategy
-is validated before the app is built (`docs/build-plan.md`). What exists is a
-pure engine, a demo data generator, and a script that prints a year of
-free-to-spend.
+Milestones **M0 to M2**. There is no application yet, by design: the strategy is
+validated before the app is built (`docs/build-plan.md`). What exists is a pure
+engine, a demo data generator, an importer for ING CSV exports, and two scripts
+that print a period-by-period free-to-spend table.
 
 ## Running the demo report
 
@@ -50,6 +50,22 @@ python3 -m scripts.demo_year --splurge 480000
 python3 -m scripts.demo_year --help
 ```
 
+## Reporting on a real export
+
+```bash
+python3 -m scripts.import_report path/to/Umsatzanzeige.csv
+python3 -m scripts.import_report statement.csv --rollover-day -3
+```
+
+Reads an ING export, verifies its running balance against every row, derives the
+window's opening balance, prints where recurring income landed so a rollover day
+can be chosen against it, and renders the table.
+
+Nothing is classified at this stage, so every payment counts as required and
+free-to-spend is just the accumulating balance. The column that means something
+is **Surplus** — income less everything that left, which is what each period
+would hand to the next once the budget is actually being spent down.
+
 ## Tests
 
 ```bash
@@ -62,13 +78,14 @@ python3 -m pytest
 ```
 engine/     pure functions. no I/O, no framework, no clock.
 demo/       generated demo data, so the app can run with no bank connection
+importers/  bank exports, normalised into the engine's shapes
 scripts/    command line entry points. the only layer here that does I/O.
 tests/
 web/        the frontend
 docs/
 ```
 
-`store/`, `importers/` and `api/` arrive with the milestones that need them.
+`store/` and `api/` arrive with the milestones that need them.
 
 ## Frontend
 

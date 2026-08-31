@@ -1,0 +1,102 @@
+"""The ING importer, against a fixture with a real running-balance chain."""
+
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+from importers import ing_csv
+from importers.parsing import ParseError
+
+FIXTURE = Path(__file__).parent / "fixtures" / "ing_sample.csv"
+RAW = FIXTURE.read_bytes()
+
+
+@pytest.fixture(scope="module")
+def statement():
+    return ing_csv.parse(RAW)
+
+
+def test_the_fixture_parses_cleanly(statement):
+    assert statement.is_clean
+    assert statement.bank == "ING"
+    assert statement.period_start == date(2026, 3, 1)
+    assert statement.period_end == date(2026, 8, 31)
+    assert len(statement.booked) == 62
+
+
+def test_amounts_come_from_betrag_not_saldo(statement):
+    """The header repeats `Waehrung`, so the columns are found by position."""
+    salary = [t for t in statement.booked if t.kind == "Gehalt/Rente"]
+    assert {t.amount_cents for t in salary} == {285_000}
+
+
+def test_both_dates_are_kept_and_can_differ(statement):
+    differing = [t for t in statement.booked if t.value_date != t.booking_date]
+    assert differing, "the fixture should contain at least one Wertstellung mismatch"
+    assert differing[0].value_date > differing[0].booking_date
+
+
+def test_the_opening_balance_is_derived_from_the_running_balance(statement):
+    """The window's starting balance, which no other field states outright."""
+    assert statement.opening_balance_cents == 312_045
+    opening = statement.transactions[0]
+    assert opening.id == ing_csv.OPENING_BALANCE_ID
+    assert opening.booking_date < min(t.booking_date for t in statement.booked)
+    assert sum(t.amount_cents for t in statement.transactions) == statement.statement_balance_cents
+
+
+def test_a_latin1_and_a_utf8_export_parse_identically():
+    utf8 = RAW.decode("cp1252").encode("utf-8")
+    assert ing_csv.parse(utf8).transactions == ing_csv.parse(RAW).transactions
+
+
+def test_ids_are_stable_across_reimports(statement):
+    assert [t.id for t in ing_csv.parse(RAW).booked] == [t.id for t in statement.booked]
+
+
+def test_identical_purchases_on_one_day_stay_distinct():
+    """Two coffees at the same shop are two transactions, not one."""
+    body = (
+        "Buchung;Wertstellungsdatum;Auftraggeber/Empfänger;Buchungstext;"
+        "Verwendungszweck;Saldo;Währung;Betrag;Währung\n"
+        "01.03.2026;01.03.2026;CAFE;Lastschrift;KAFFEE;97,00;EUR;-3,50;EUR\n"
+        "01.03.2026;01.03.2026;CAFE;Lastschrift;KAFFEE;100,50;EUR;-3,50;EUR\n"
+    )
+    parsed = ing_csv.parse(body.encode("utf-8"))
+    assert len(parsed.booked) == 2
+    assert len({t.id for t in parsed.booked}) == 2
+
+
+def test_a_misread_amount_is_caught_by_the_running_balance():
+    corrupted = RAW.decode("cp1252").replace("-700,00;EUR", "-70,00;EUR", 1)
+    parsed = ing_csv.parse(corrupted.encode("cp1252"))
+    assert parsed.balance_discrepancies
+    assert not parsed.is_clean
+
+
+def test_a_bad_row_is_collected_rather_than_raised():
+    """A first run against a real export should report every problem at once."""
+    lines = RAW.decode("cp1252").splitlines()
+    lines[-1] = lines[-1].replace(";EUR;", ";EUR;nonsense;", 1)
+    parsed = ing_csv.parse("\n".join(lines).encode("cp1252"))
+    assert len(parsed.row_errors) == 1
+    assert parsed.row_errors[0].line_number > 0
+    assert len(parsed.booked) == 61
+
+
+def test_ascending_and_descending_exports_agree():
+    text = RAW.decode("cp1252")
+    head, _, table = text.partition("Buchung;Wertstellungsdatum")
+    header, *rows = ("Buchung;Wertstellungsdatum" + table).splitlines()
+    flipped = head.replace("Datum absteigend", "Datum aufsteigend")
+    flipped += "\n".join([header, *reversed([r for r in rows if r.strip()])])
+
+    parsed = ing_csv.parse(flipped.encode("cp1252"))
+    assert parsed.is_clean
+    assert parsed.transactions == ing_csv.parse(RAW).transactions
+
+
+def test_a_file_without_a_table_is_rejected():
+    with pytest.raises(ParseError, match="no table header"):
+        ing_csv.parse(b"Umsatzanzeige;irgendwas\n\nIBAN;DE00\n")
