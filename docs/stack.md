@@ -62,7 +62,7 @@ engine/        pure functions. no I/O, no framework, no clock.
 store/         sqlite persistence. thin.
 importers/     bank exports, normalised into engine shapes
     errors.py      what an importer reports rather than raises
-    csv_table.py   generic: a delimited table below a metadata preamble
+    csv_table.py   generic: decode a file, take the table at a given header line
     german.py      German dates and amounts
     statement.py   what every importer produces
     ing_csv.py     the ING adapter, built on the three above
@@ -79,6 +79,11 @@ Inside `importers/`, the same split again: `csv_table` and `german` are generic
 mechanism that knows nothing about any bank, and each bank is an adapter over
 them producing the one shared `ImportedStatement`. A second bank is a new
 adapter, not a new parser.
+
+`csv_table` deliberately assumes very little: a file decodes to lines, one of
+them is the header, the rest are rows. It does not assume a preamble exists,
+because not every bank has one — finding the header line, and reading whatever
+sits above it, belongs to the adapter.
 
 Directories arrive with the milestone that needs them, rather than being created
 empty up front.

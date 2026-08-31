@@ -123,6 +123,8 @@ Measured against a real export (M2), not assumed:
   Barabhebung — and the set is not knowable in advance, so it is stored as a
   string.
 - **The header row repeats `Währung`**, so columns are located by position.
+- **The preamble has no fixed length**, so the table is found by scanning for a
+  line starting with `Buchung;` rather than by skipping a set number of rows.
 
 ### 3.2 Import identity and deduplication
 

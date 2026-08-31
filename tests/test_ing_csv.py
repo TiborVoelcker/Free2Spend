@@ -115,6 +115,15 @@ def test_a_foreign_currency_row_is_rejected():
     assert "USD" in parsed.row_errors[0].message
 
 
+def test_the_header_is_found_below_a_preamble_of_any_length(statement):
+    """Where the table starts is ING's problem, not the CSV reader's."""
+    assert statement.iban.startswith("DE26")
+    assert statement.account_name == "Girokonto"
+
+    padded = RAW.decode("cp1252").replace("IBAN;", "Zusatz;egal\nZusatz;egal\nIBAN;", 1)
+    assert ing_csv.parse(padded.encode("cp1252")).transactions == statement.transactions
+
+
 def test_a_file_without_a_table_is_rejected():
     with pytest.raises(ParseError, match="no table header"):
         ing_csv.parse(b"Umsatzanzeige;irgendwas\n\nIBAN;DE00\n")

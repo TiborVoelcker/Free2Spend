@@ -13,7 +13,7 @@ from datetime import date, timedelta
 
 from engine import BalanceAnchor, Transaction
 from importers import csv_table, german
-from importers.csv_table import CsvTable, Row
+from importers.csv_table import CsvTable, Row, split_line
 from importers.errors import ParseError, RowError
 from importers.statement import ImportedStatement
 
@@ -35,25 +35,51 @@ def read(path: str) -> ImportedStatement:
 
 
 def parse(payload: bytes) -> ImportedStatement:
-    table = csv_table.read(payload, header_starts_with=HEADER_PREFIX)
+    lines, encoding = csv_table.decode_lines(payload)
+    header_line = _find_header(lines)
+    table = csv_table.table_from(lines, encoding, header_line=header_line)
     table.require_columns(BOOKING, COUNTERPARTY, KIND, PURPOSE, AMOUNT)
 
+    meta = _parse_preamble(lines[:header_line])
     entries, row_errors = _read_entries(table)
-    entries = _oldest_first(entries, table)
+    entries = _oldest_first(entries, meta)
 
-    start, end = _period(table)
+    start, end = _period(meta)
     return ImportedStatement(
-        encoding=table.encoding,
-        bank=table.meta_value("Bank"),
-        iban=table.meta_value("IBAN"),
-        account_name=table.meta_value("Kontoname"),
+        encoding=encoding,
+        bank=_meta(meta, "Bank"),
+        iban=_meta(meta, "IBAN"),
+        account_name=_meta(meta, "Kontoname"),
         period_start=start,
         period_end=end,
         transactions=tuple(entry.transaction for entry in entries),
-        anchors=_anchors(entries, table),
+        anchors=_anchors(entries, meta),
         row_errors=tuple(row_errors),
         balance_discrepancies=() if row_errors else _verify_chain(entries),
     )
+
+
+def _find_header(lines: list[str]) -> int:
+    """ING puts a `Key;Value` preamble above the table, of no fixed length."""
+    for index, line in enumerate(lines):
+        if line.startswith(HEADER_PREFIX):
+            return index
+    raise ParseError(f"no table header: expected a line starting with {HEADER_PREFIX!r}")
+
+
+def _parse_preamble(lines: list[str]) -> dict[str, tuple[str, ...]]:
+    meta: dict[str, tuple[str, ...]] = {}
+    for line in lines:
+        if ";" not in line:
+            continue
+        key, *values = split_line(line)
+        if key.strip():
+            meta.setdefault(key.strip(), tuple(value.strip() for value in values))
+    return meta
+
+
+def _meta(meta: dict[str, tuple[str, ...]], key: str) -> str:
+    return (meta.get(key) or ("",))[0]
 
 
 @dataclass(frozen=True)
@@ -134,23 +160,25 @@ def _identifier(
     return f"ing-{digest}-{seen[digest]}"
 
 
-def _oldest_first(entries: list[_Entry], table: CsvTable) -> list[_Entry]:
-    descending = "absteigend" in table.meta_value("Sortierung").lower()
+def _oldest_first(entries: list[_Entry], meta: dict[str, tuple[str, ...]]) -> list[_Entry]:
+    descending = "absteigend" in _meta(meta, "Sortierung").lower()
     if not descending and len(entries) > 1:
         descending = entries[0].transaction.booking_date > entries[-1].transaction.booking_date
     return list(reversed(entries)) if descending else entries
 
 
-def _anchors(entries: list[_Entry], table: CsvTable) -> tuple[BalanceAnchor, ...]:
+def _anchors(
+    entries: list[_Entry], meta: dict[str, tuple[str, ...]]
+) -> tuple[BalanceAnchor, ...]:
     """Two per import: the balance before the window, and after it.
 
     The opening balance is stated nowhere in the file; it is the first row's
     running balance less that row's own amount.
     """
-    if not entries or not table.has_column(BALANCE):
+    if not entries:
         return ()
     first, last = entries[0], entries[-1]
-    source = f"ING {table.meta_value('Kontoname') or table.meta_value('IBAN')}".strip()
+    source = f"ING {_meta(meta, 'Kontoname') or _meta(meta, 'IBAN')}".strip()
     return (
         BalanceAnchor(
             as_of=first.transaction.booking_date - timedelta(days=1),
@@ -178,9 +206,9 @@ def _verify_chain(entries: list[_Entry]) -> tuple[str, ...]:
     return tuple(problems)
 
 
-def _period(table: CsvTable) -> tuple[date | None, date | None]:
+def _period(meta: dict[str, tuple[str, ...]]) -> tuple[date | None, date | None]:
     """`Zeitraum;01.03.2026 - 31.08.2026`, the range an import replaces."""
-    parts = [part.strip() for part in table.meta_value("Zeitraum").split("-")]
+    parts = [part.strip() for part in _meta(meta, "Zeitraum").split("-")]
     if len(parts) != 2:
         return None, None
     try:
