@@ -38,8 +38,12 @@ The format is read by `importers/ing_csv.py`. What is worth knowing:
   line starting `Buchung;`, not by skipping N lines. Only the export timestamp
   is read from it; the IBAN and bank name are known from the account already.
 - **Row order is taken from the running balance**, not from the dates or the
-  `Sortierung` header: it is the thing that has to add up, and a one-day export
-  gives the dates nothing to go on.
+  `Sortierung` header. Dates carry no order *within* a day, and days with
+  several transactions are common — sorting the sample fixture by date alone
+  breaks its balance chain in 23 places, and would pick the wrong row as the
+  window's last, giving a wrong closing anchor. Only the importer needs this
+  order, to walk the chain and pick the endpoints; the engine sorts by date
+  itself and only ever sums.
 - **Every row carries a running balance** (`Saldo`). This is how a misread
   amount is caught immediately, and how the window's opening balance is derived
   — no field states it outright.

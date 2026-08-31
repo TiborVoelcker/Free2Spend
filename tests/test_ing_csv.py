@@ -99,8 +99,11 @@ def test_every_bad_row_is_reported_not_just_the_first():
     assert all(problem.line and problem.context for problem in result.problems)
 
 
-def test_the_export_order_is_taken_from_the_dates_not_the_header():
-    """Whether the numbers add up must not depend on a German word in a header."""
+def test_the_export_order_is_taken_from_the_running_balance():
+    """Not from the dates: they carry no order within a day, and 8 of this
+    fixture's 54 dates hold more than one row. Not from the `Sortierung`
+    header either: whether the numbers add up should not rest on a German word.
+    """
     text = RAW.decode("cp1252")
     head, _, table = text.partition("Buchung;Wertstellungsdatum")
     header, *rows = ("Buchung;Wertstellungsdatum" + table).splitlines()
