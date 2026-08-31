@@ -59,17 +59,21 @@ bank is ever connected.
 
 ```
 engine/        pure functions. no I/O, no framework, no clock.
+demo/          generated demo data (section 8). pure, seeded.
 store/         sqlite persistence. thin.
 importers/     enablebanking/, csv/  → normalise into engine shapes
 api/           fastapi. http, auth, serving the frontend.
+scripts/       command line entry points. does I/O.
 web/           the SPA
 tests/
 ```
 
 Dependency direction is strictly downward: `api` knows `store` and `engine`,
-`store` knows `engine`, and **`engine` knows nothing**.
+`store` knows `engine`, and **`engine` knows nothing**. `demo` knows only
+`engine`, so generated data is the same shape as imported data.
 
-The existing Nuxt app sits at the repository root and will be moved under `web/`.
+Directories arrive with the milestone that needs them, rather than being created
+empty up front.
 
 ---
 

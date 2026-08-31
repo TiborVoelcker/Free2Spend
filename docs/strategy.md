@@ -133,7 +133,12 @@ and self-corrects; a recurring one that always lands on the wrong side causes a
 permanent offset.**
 
 The fix is to move the boundary, not the transactions: a period runs from the
-**rollover day** to the rollover day (e.g. the 27th → the 26th). One configuration value handles both the
+**rollover day** to the rollover day (e.g. the 27th → the 26th).
+
+The rollover day may also be given **relative to the end of the month**: -1 is
+the last day, -2 the day before it. Salaries often land on the last banking day
+rather than a fixed date, and a relative rollover day tracks that instead of
+drifting against it as month lengths change. One configuration value handles both the
 salary and the end-of-month rent, with no per-transaction dates to maintain.
 
 Per-transaction overrides are deferred (§5).
@@ -282,7 +287,7 @@ The official names. Used in the docs, the UI, and the code.
 | Term | Meaning |
 |---|---|
 | **Period** | one budget month; runs rollover day to rollover day, and is shown as its actual date range rather than a month name |
-| **Rollover day** | the day of month on which one period ends and the next begins |
+| **Rollover day** | the day of month on which one period ends and the next begins. Counted from the start of the month, or from its end: -1 is the last day |
 | **Rollover** | the event at a rollover day, when free-to-spend is recomputed and automatic virtual transactions are made |
 
 ### Movements

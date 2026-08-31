@@ -1,9 +1,20 @@
+# node
 node_modules
 *.log*
 .nuxt
 .nitro
 .cache
 .output
-.env
 dist
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# local
+.env
 .DS_Store
