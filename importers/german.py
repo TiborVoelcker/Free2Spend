@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+import re
+from datetime import date, datetime
 
 from importers.errors import ParseError
 
@@ -38,3 +39,18 @@ def parse_cents(raw: str, *, where: str = "") -> int:
 
 def _at(where: str) -> str:
     return f" ({where})" if where else ""
+
+
+TIMESTAMP = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})")
+
+
+def find_timestamp(text: str) -> datetime | None:
+    """The first `31.08.2026 15:33` anywhere in a line, if there is one."""
+    match = TIMESTAMP.search(text)
+    if not match:
+        return None
+    day, month, year, hour, minute = (int(part) for part in match.groups())
+    try:
+        return datetime(year, month, day, hour, minute)
+    except ValueError:
+        return None

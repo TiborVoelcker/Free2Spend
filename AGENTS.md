@@ -18,6 +18,8 @@ There are no runtime dependencies. `pytest` and `ruff` are the only dev ones.
 - **Money is `int` cents.** Never float, never `Decimal`. Rounding is then an
   explicit decision at the one place it happens.
 - **Dates, never timestamps.** `datetime.date` throughout, Europe/Berlin implied.
+  The one exception is an export's creation time, which is provenance rather
+  than anything the arithmetic touches.
 - **`today` is always a parameter.** Nothing in `engine/` reads a clock, which
   is what makes a whole simulated year reproducible.
 - **`engine/` imports nothing but the standard library**, so it can be used from
@@ -33,7 +35,11 @@ The format is read by `importers/ing_csv.py`. What is worth knowing:
   tried in turn.
 - **The header row repeats `Währung`**, so columns are found by position.
 - **The preamble has no fixed length**, so the table is found by scanning for a
-  line starting `Buchung;`, not by skipping N lines.
+  line starting `Buchung;`, not by skipping N lines. Only the export timestamp
+  is read from it; the IBAN and bank name are known from the account already.
+- **Row order is taken from the running balance**, not from the dates or the
+  `Sortierung` header: it is the thing that has to add up, and a one-day export
+  gives the dates nothing to go on.
 - **Every row carries a running balance** (`Saldo`). This is how a misread
   amount is caught immediately, and how the window's opening balance is derived
   — no field states it outright.
@@ -54,6 +60,7 @@ script; edit it by hand and recompute the chain, or regenerate it wholesale.
 
 - **Importer auto-detection.** `importers/importer.py` defines the `Importer`
   protocol; detection is added by extending it with `sniff` and a registry.
-- **Range replacement on re-import.** The ING export declares its window, which
-  is what would drive it; the header is ignored for now.
+- **Range replacement on re-import.** The ING export declares its window in a
+  `Zeitraum` header, which is what would drive it. The header is ignored for now
+  since not every export has one.
 - Anything in `docs/v2-ideas.md`.

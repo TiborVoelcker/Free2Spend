@@ -1,22 +1,18 @@
-"""ING "Umsatzanzeige" CSV exports.
-
-What the format contains, and why it is read this way, is in
-docs/implementation.md section 3.1.2.
-"""
+"""ING "Umsatzanzeige" CSV exports. Format quirks are noted in AGENTS.md."""
 
 from __future__ import annotations
 
 import hashlib
-import itertools
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, timedelta
+from itertools import pairwise
 
 from engine import BalanceAnchor, Transaction
 from importers import csv_table, german
-from importers.csv_table import CsvTable, Row, split_line
-from importers.errors import ParseError, RowError
-from importers.statement import ImportedStatement
+from importers.csv_table import CsvTable, Row
+from importers.errors import ParseError, Problem
+from importers.statement import ImportedStatement, ImportFailed, ImportResult
 
 HEADER_PREFIX = "Buchung;"
 CURRENCY = "EUR"
@@ -35,57 +31,27 @@ class IngCsvImporter:
 
     name = "ING Umsatzanzeige (CSV)"
 
-    def read(self, path: str) -> ImportedStatement:
+    def read(self, path: str) -> ImportResult:
         with open(path, "rb") as handle:
             return self.parse(handle.read())
 
-    def parse(self, payload: bytes) -> ImportedStatement:
-        return parse(payload)
+    def parse(self, payload: bytes) -> ImportResult:
+        lines, encoding = csv_table.decode_lines(payload)
+        table = csv_table.table_from(lines, encoding, header_line=_find_header(lines))
+        table.require_columns(BOOKING, COUNTERPARTY, KIND, PURPOSE, AMOUNT)
 
+        entries, problems = _read_entries(table)
+        if not problems:
+            entries, problems = _in_balance_order(entries)
+        if problems:
+            return ImportFailed(tuple(problems))
 
-def parse(payload: bytes) -> ImportedStatement:
-    lines, encoding = csv_table.decode_lines(payload)
-    header_line = _find_header(lines)
-    table = csv_table.table_from(lines, encoding, header_line=header_line)
-    table.require_columns(BOOKING, COUNTERPARTY, KIND, PURPOSE, AMOUNT)
-
-    meta = _parse_preamble(lines[:header_line])
-    entries, row_errors = _read_entries(table)
-    entries = _oldest_first(entries, meta)
-
-    return ImportedStatement(
-        encoding=encoding,
-        bank=_meta(meta, "Bank"),
-        iban=_meta(meta, "IBAN"),
-        account_name=_meta(meta, "Kontoname"),
-        transactions=tuple(entry.transaction for entry in entries),
-        anchors=_anchors(entries, meta),
-        row_errors=tuple(row_errors),
-        balance_discrepancies=() if row_errors else _verify_chain(entries),
-    )
-
-
-def _find_header(lines: list[str]) -> int:
-    """ING puts a `Key;Value` preamble above the table, of no fixed length."""
-    for index, line in enumerate(lines):
-        if line.startswith(HEADER_PREFIX):
-            return index
-    raise ParseError(f"no table header: expected a line starting with {HEADER_PREFIX!r}")
-
-
-def _parse_preamble(lines: list[str]) -> dict[str, tuple[str, ...]]:
-    meta: dict[str, tuple[str, ...]] = {}
-    for line in lines:
-        if ";" not in line:
-            continue
-        key, *values = split_line(line)
-        if key.strip():
-            meta.setdefault(key.strip(), tuple(value.strip() for value in values))
-    return meta
-
-
-def _meta(meta: dict[str, tuple[str, ...]], key: str) -> str:
-    return (meta.get(key) or ("",))[0]
+        return ImportedStatement(
+            encoding=encoding,
+            created_at=_created_at(lines),
+            transactions=tuple(entry.transaction for entry in entries),
+            anchors=_anchors(entries),
+        )
 
 
 @dataclass(frozen=True)
@@ -95,19 +61,35 @@ class _Entry:
     line_number: int
 
 
-def _read_entries(table: CsvTable) -> tuple[list[_Entry], list[RowError]]:
+def _find_header(lines: list[str]) -> int:
+    """ING puts a preamble above the table, of no fixed length."""
+    for index, line in enumerate(lines):
+        if line.startswith(HEADER_PREFIX):
+            return index
+    raise ParseError(f"no table header: expected a line starting with {HEADER_PREFIX!r}")
+
+
+def _created_at(lines: list[str]):
+    """When the export was made. The only thing the preamble is read for."""
+    for line in lines:
+        if (found := german.find_timestamp(line)) is not None:
+            return found
+    return None
+
+
+def _read_entries(table: CsvTable) -> tuple[list[_Entry], list[Problem]]:
     """Bad rows are collected, not raised: a first run against an unfamiliar
     export should report everything wrong with it at once."""
     entries: list[_Entry] = []
-    errors: list[RowError] = []
+    problems: list[Problem] = []
     seen: Counter[str] = Counter()
 
     for row in table.rows:
         try:
             entries.append(_read_entry(row, table, seen))
         except ParseError as exc:
-            errors.append(RowError(row.line_number, str(exc), row.raw))
-    return entries, errors
+            problems.append(Problem(str(exc), line=row.line_number, context=row.raw))
+    return entries, problems
 
 
 def _read_entry(row: Row, table: CsvTable, seen: Counter[str]) -> _Entry:
@@ -166,14 +148,32 @@ def _identifier(
     return f"ing-{digest}-{seen[digest]}"
 
 
-def _oldest_first(entries: list[_Entry], meta: dict[str, tuple[str, ...]]) -> list[_Entry]:
-    descending = "absteigend" in _meta(meta, "Sortierung").lower()
-    if not descending and len(entries) > 1:
-        descending = entries[0].transaction.booking_date > entries[-1].transaction.booking_date
-    return list(reversed(entries)) if descending else entries
+def _in_balance_order(entries: list[_Entry]) -> tuple[list[_Entry], list[Problem]]:
+    """The entries oldest first, and any row whose running balance does not follow.
+
+    The direction is taken from the balance itself rather than from the dates or
+    the export's `Sortierung` header. The balance is the thing that has to add
+    up, a one-day export gives the dates nothing to go on, and a German word in
+    a header is a poor thing to trust the numbers to.
+    """
+    forwards = _chain_problems(entries)
+    if not forwards:
+        return entries, []
+
+    backwards = list(reversed(entries))
+    backwards_problems = _chain_problems(backwards)
+    if not backwards_problems:
+        return backwards, []
+
+    # Neither direction adds up, so one amount was misread. The real order is
+    # the one that explains more of the file; reporting the other would bury a
+    # single bad row under a knock-on error for every row after it.
+    if len(backwards_problems) < len(forwards):
+        return backwards, backwards_problems
+    return entries, forwards
 
 
-def _anchors(entries: list[_Entry], meta: dict[str, tuple[str, ...]]) -> tuple[BalanceAnchor, ...]:
+def _anchors(entries: list[_Entry]) -> tuple[BalanceAnchor, ...]:
     """Two per import: the balance before the window, and after it.
 
     The opening balance is stated nowhere in the file; it is the first row's
@@ -182,29 +182,30 @@ def _anchors(entries: list[_Entry], meta: dict[str, tuple[str, ...]]) -> tuple[B
     if not entries:
         return ()
     first, last = entries[0], entries[-1]
-    source = f"ING {_meta(meta, 'Kontoname') or _meta(meta, 'IBAN')}".strip()
     return (
         BalanceAnchor(
             as_of=first.transaction.booking_date - timedelta(days=1),
             balance_cents=first.balance_cents - first.transaction.amount_cents,
-            source=f"{source} opening",
+            source="ING export, opening",
         ),
         BalanceAnchor(
             as_of=last.transaction.booking_date,
             balance_cents=last.balance_cents,
-            source=f"{source} closing",
+            source="ING export, closing",
         ),
     )
 
 
-def _verify_chain(entries: list[_Entry]) -> tuple[str, ...]:
+def _chain_problems(entries: list[_Entry]) -> list[Problem]:
     """Every row carries a running balance, so a misread amount shows up at once."""
     problems = []
-    for previous, current in itertools.pairwise(entries):
+    for previous, current in pairwise(entries):
         expected = previous.balance_cents + current.transaction.amount_cents
         if expected != current.balance_cents:
             problems.append(
-                f"line {current.line_number}: running balance is {current.balance_cents} "
-                f"cents, expected {expected}"
+                Problem(
+                    f"running balance is {current.balance_cents} cents, expected {expected}",
+                    line=current.line_number,
+                )
             )
-    return tuple(problems)
+    return problems

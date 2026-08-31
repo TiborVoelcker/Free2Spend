@@ -17,7 +17,7 @@ from datetime import date, timedelta
 
 from engine import format_euros, period_containing, summarise
 from importers.ing_csv import IngCsvImporter
-from importers.statement import ImportedStatement
+from importers.statement import ImportedStatement, ImportFailed
 from scripts import _report
 
 DEFAULT_ROLLOVER_DAY = -5
@@ -43,24 +43,21 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    statement = IngCsvImporter().read(args.path)
-    _print_statement(statement)
-
-    if statement.row_errors:
-        print(f"\n{len(statement.row_errors)} rows could not be read:\n")
-        for error in statement.row_errors[:20]:
-            print(f"  {error}\n    {error.raw[:160]}")
-        if len(statement.row_errors) > 20:
-            print(f"  ... and {len(statement.row_errors) - 20} more")
+    result = IngCsvImporter().read(args.path)
+    if isinstance(result, ImportFailed):
+        count = len(result.problems)
+        print(f"\n{count} problem{'' if count == 1 else 's'} with this export:\n")
+        for problem in result.problems[:20]:
+            print(f"  {problem}")
+            if problem.context:
+                print(f"    {problem.context[:160]}")
+        if len(result.problems) > 20:
+            print(f"  ... and {len(result.problems) - 20} more")
         print("\nNot reporting numbers: they would be wrong.")
         return 1
 
-    for problem in statement.balance_discrepancies[:20]:
-        print(f"  {problem}")
-    if statement.balance_discrepancies:
-        print("\nAn amount was misread. Not reporting numbers.")
-        return 1
-
+    statement = result
+    _print_statement(statement)
     ledger = statement.ledger
     if not ledger:
         print("\nNo transactions in the export.")
@@ -94,16 +91,15 @@ def main() -> int:
 
 
 def _print_statement(statement: ImportedStatement) -> None:
+    created = statement.created_at
     print()
-    print(f"{statement.bank} · {statement.account_name} · {statement.iban}")
-    print(f"Read as {statement.encoding}")
+    print(f"Export created {created:%Y-%m-%d %H:%M}" if created else "Export creation time unknown")
     print(
-        f"{len(statement.transactions)} transactions, "
+        f"{len(statement.transactions)} transactions read as {statement.encoding}, "
         f"opening balance {format_euros(statement.opening_balance_cents)}, "
         f"closing {format_euros(statement.closing_balance_cents)}"
     )
-    if statement.is_clean:
-        print("The running balance verifies against every row.")
+    print("The running balance verifies against every row.")
 
 
 def _first_complete_period_start(first: date, rollover_day: int) -> date:

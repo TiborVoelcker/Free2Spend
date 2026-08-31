@@ -1,4 +1,4 @@
-"""Failures an importer reports rather than raises."""
+"""What an importer reports rather than raises."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ class ParseError(ValueError):
 
 
 @dataclass(frozen=True)
-class RowError:
-    """One unreadable row. The rest of the file is still parsed."""
+class Problem:
+    """One thing wrong with an export, reported alongside all the others."""
 
-    line_number: int
     message: str
-    raw: str
+    line: int | None = None
+    context: str = ""
 
     def __str__(self) -> str:
-        return f"line {self.line_number}: {self.message}"
+        return f"line {self.line}: {self.message}" if self.line else self.message
