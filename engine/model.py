@@ -24,19 +24,31 @@ class Classification(Enum):
 
 @dataclass(frozen=True)
 class Transaction:
-    """A real bank transaction.
-
-    `amount_cents` is negative for money leaving the account and positive for
-    money arriving.
-    """
+    """A real bank transaction. `amount_cents` is negative for money leaving."""
 
     id: str
-    date: date
+    booking_date: date
     amount_cents: int
     description: str
     counterparty: str = ""
     classification: Classification = Classification.REQUIRED
+    reviewed: bool = False
+    value_date: date | None = None
+    kind: str = ""
 
     @property
     def is_outflow(self) -> bool:
         return self.amount_cents < 0
+
+
+@dataclass(frozen=True)
+class BalanceAnchor:
+    """What the bank said the balance was at the end of `as_of`.
+
+    Ground truth. Transactions fill the gaps between anchors, and where the two
+    disagree the anchor is right and transactions are missing.
+    """
+
+    as_of: date
+    balance_cents: int
+    source: str = ""

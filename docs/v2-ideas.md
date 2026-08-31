@@ -14,7 +14,10 @@ Rather than asking the user cold, analyse the imported history for the widest
 reliable gap before recurring income and propose a day.
 
 *Why not V1:* needs recurring-transaction detection, which nothing else in V1
-requires. Picking the day by looking at a CSV once is a five-minute job.
+requires. M2 instead defaults the rollover day to -5 and warns when any period's
+income is more than 50% away from the usual — which is exactly the symptom of a
+rollover day on the wrong side of the salary. That turned out to be enough, and
+it is five lines rather than sixty.
 
 ### Preview the effect of a rollover day before saving it
 

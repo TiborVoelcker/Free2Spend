@@ -73,31 +73,52 @@ case it exists for (salary arriving before the month it pays for).
 
 **Not yet:** no database, no API, no UI, no pockets.
 
-*Outcome:* done. `python3 -m scripts.demo_year` prints the table. The demo year
-deliberately contains an annual insurance premium, a windfall, a car repair, and
-a holiday saved up for across two lean periods; `--splurge` dials that holiday up
-until a period is overspent, so the negative case can be summoned rather than
-waited for. The salary-timing case has a regression test that states the bug the
-rollover day prevents, by comparing against a calendar-month boundary.
+*Outcome:* done, then partly superseded. The engine and the salary-timing
+regression test remain; the demo year generator and its script were removed at M2
+in favour of a committed export in a real bank's format (`stack.md` §8).
 
 ---
 
-## M2 — Your own history
+## M2 — Your own history — *built*
 
 **Goal:** the same table, on real numbers.
 
-**Build:** the CSV backfill importer, and a rollover-day suggester that looks for
-the widest reliable gap before recurring income.
+**Build:** the CSV backfill importer, and a report over the imported ledger.
 
-**Proves:** the strategy itself. This is the milestone the whole project is
-pointed at — if free-to-spend on your real last twelve months looks unusable, that
-is worth knowing now, before a line of UI exists.
+*No suggester.* The original plan had one; the review of PR #5 parked
+"suggest a rollover day from the history" in `v2-ideas.md` as too much for the
+first build. A sensible default plus a warning when the income per period looks
+wrong gives the same decision for a fraction of the code.
 
-**Done when:** you have seen your own last twelve months of free-to-spend and
-chosen a rollover day from the data.
+**Proves:** less than this plan first claimed, and the correction matters.
 
-**Not yet:** still no classification needed, still no pockets — see the property
-above.
+With nothing classified, every payment counts as required, so free-to-spend is
+simply the accumulated balance — a real number, but not the free-to-spend you
+would have had, because you would have been spending it down. What the milestone
+really establishes is:
+
+- **the surplus per period** — income less everything that left. That is what
+  each period would hand to the next, and it is the honest preview of the budget
+- **that income reliably exceeds required expenses** (requirement 1 in
+  `strategy.md` section 6)
+- **where the salary lands**, and therefore the rollover day
+
+A realistic free-to-spend needs the discretionary split, which is M5.
+
+**Done when:** you have run it over your own export, seen the surplus per period,
+and chosen a rollover day from the data.
+
+**Not yet:** still no classification, still no pockets — see the property above.
+
+*Outcome:* built against a real ING export format. `python3 -m
+scripts.import_report <csv>` reads the export, verifies its running balance
+against every row, derives the window's opening and closing balances as anchors,
+and renders the table. What a real export contains is recorded in `AGENTS.md`.
+
+The rollover day defaults to -5, five days before the month end, and the report
+warns when any period's income is more than 50% away from the usual — the
+symptom of a rollover day on the wrong side of the salary, which is otherwise
+silent and permanent.
 
 ---
 
