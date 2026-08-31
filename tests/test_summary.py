@@ -4,7 +4,7 @@ from datetime import date
 
 from conftest import fun, ledger, txn
 
-from engine import period_containing
+from engine import period_containing, summarise
 
 
 def d(iso: str) -> date:
@@ -43,9 +43,7 @@ def test_a_calendar_month_boundary_overstates_free_to_spend_by_a_salary():
 
 def test_a_period_reconciles():
     september = period_containing(d("2025-09-10"), 27)
-    (summary,) = [
-        s for s in LEDGER.summarise(27, today=d("2025-09-26")) if s.period == september
-    ]
+    (summary,) = [s for s in summarise(LEDGER, 27, today=d("2025-09-26")) if s.period == september]
     assert summary.free_to_spend_cents == 240_000
     assert summary.income_cents == 320_000
     assert summary.required_spend_cents == 115_000 + 40_000
@@ -62,7 +60,7 @@ def test_overspending_carries_into_the_next_period():
         txn("2025-09-29", 3200, "salary"),
         fun("2025-09-12", -5000, "a very expensive holiday"),
     )
-    first, second = book.summarise(27, today=d("2025-10-26"), since=d("2025-08-27"))
+    first, second = summarise(book, 27, today=d("2025-10-26"), since=d("2025-08-27"))
     assert first.remaining_free_to_spend_cents == 240_000 - 500_000
     assert first.is_overspent
     assert second.free_to_spend_cents == first.closing_balance_cents < 240_000
@@ -70,20 +68,18 @@ def test_overspending_carries_into_the_next_period():
 
 def test_transactions_after_today_are_not_reported_but_still_exist():
     """`today` bounds the report, not the ledger."""
-    summaries = LEDGER.summarise(27, today=d("2025-09-11"))
+    summaries = summarise(LEDGER, 27, today=d("2025-09-11"))
     assert summaries[-1].period.contains(d("2025-09-11"))
     assert summaries[-1].fun_spend_cents == 0  # the restaurant is on the 12th
 
 
 def test_summarise_edges():
-    assert LEDGER.summarise(27, today=d("2025-09-26"), since=d("2026-01-01")) == []
-    assert len(LEDGER.summarise(27, today=d("2025-09-26"), since=d("2025-08-29"))) == 1
+    assert summarise(LEDGER, 27, today=d("2025-09-26"), since=d("2026-01-01")) == []
+    assert len(summarise(LEDGER, 27, today=d("2025-09-26"), since=d("2025-08-29"))) == 1
 
 
 def test_surplus_is_the_balance_moving():
     """Not a re-derivation from the aggregates: closing less free-to-spend."""
-    (summary,) = LEDGER.summarise(27, today=d("2025-09-26"), since=d("2025-08-27"))
-    assert summary.surplus_cents == (
-        summary.closing_balance_cents - summary.free_to_spend_cents
-    )
+    (summary,) = summarise(LEDGER, 27, today=d("2025-09-26"), since=d("2025-08-27"))
+    assert summary.surplus_cents == (summary.closing_balance_cents - summary.free_to_spend_cents)
     assert summary.surplus_cents == 320_000 - 115_000 - 40_000 - 20_000

@@ -55,76 +55,22 @@ Roughly in dependency order, not build order:
 
 ## 3. Getting data in
 
-### 3.1 Channels, and the staleness problem
+### 3.1 The channel
 
-There is a hard constraint that decides this: **the product is a live number.**
-If the data is a month old, "remaining free-to-spend" is a month old, and the app
-is useless for the decision it exists to support — *can I buy this right now?* A
-monthly PDF statement cannot deliver that, so PDF is not the easy option, it is
-the option that does not work.
-
-**Decision: PSD2 bank access via Enable Banking** as the ongoing channel.
-
-This has consequences worth stating up front, because they shape the whole build:
+**PSD2 bank access via Enable Banking** for ongoing import. Its consequences
+shape the build:
 
 - **A backend is mandatory.** PSD2 aggregators authenticate the *application*
-  with a private key. That key cannot live in a browser, so a purely client-side
-  app is off the table regardless of any other preference. See `stack.md`.
-- **Consent expires.** PSD2 requires periodic re-authentication. Reconnecting is
-  a recurring event, not a one-off setup step, so the app must hold last-known
-  data, keep working while disconnected, and surface a clear "reconnect" state
-  rather than erroring.
-- **Build against the sandbox first.** The strategy can be validated long before
-  a real bank is ever connected.
-- **Staleness between refreshes is accepted.** The number will occasionally be a
-  little behind. No compensating mechanism (such as manually entering a fun
-  expense before it lands) is built.
-- **Bank coverage: verified.** The author's bank is supported by Enable Banking.
-  What it actually exposes (history depth, balance types, update latency) is
-  still to be measured.
-
-### 3.1.1 History depth, and why it barely matters
-
-PSD2 access typically returns a limited window of history (often around 90 days).
-This sounds like a problem for bootstrapping and mostly is not, because
-**free-to-spend needs almost no history to be correct**: the balance at the last
-rollover, plus this period's transactions. One period is enough for the app to
-function fully.
-
-Longer history is wanted for two secondary things: picking the rollover day
-(§4.1) and any retrospective analysis. Both are one-off or optional.
-
-So a CSV or PDF import path is not dead — it is demoted to exactly one job:
-**the initial backfill**, run once, from an online-banking export. It never needs
-to be reliable enough for ongoing use, which removes most of the reason it was
-hard.
-
-### 3.1.2 What an ING export actually contains
-
-Measured against a real export (M2), not assumed:
-
-- **A running balance on every row.** Far better than the single balance anchor
-  section 3.3 assumes. The whole chain can be verified, which catches a misread
-  amount immediately, and the opening balance of the window is derivable exactly
-  as `first row's balance - first row's amount`. No other field states it.
-- **Only booked entries.** The preamble says pending entries (*vorgemerkte
-  Umsätze*) are excluded, so there is nothing that later changes or duplicates.
-- **The window is declared** (`Zeitraum;01.03.2026 - 31.08.2026`), which is
-  exactly the input range replacement (section 3.2) needs.
-- **Both dates, nearly always equal.** `Buchung` and `Wertstellungsdatum` differ
-  only occasionally, on card settlements around weekends. Booking date drives
-  every calculation; see `engine/model.py`.
-- **No purchase date as a column.** For card payments it is inside the purpose
-  text (`... KAUFUMSATZ 24.08 12.99 ...`), recoverable by pattern but not
-  structured. This confirms payment float (docs/strategy.md section 5) stays
-  deferred rather than being free to pick up.
-- **`Buchungstext` is free text, not an enum.** Observed: Gehalt/Rente,
-  Echtzeitüberweisung, Lastschrift, Gutschrift, Gutschrift Echtzeitüberweisung,
-  Barabhebung — and the set is not knowable in advance, so it is stored as a
-  string.
-- **The header row repeats `Währung`**, so columns are located by position.
-- **The preamble has no fixed length**, so the table is found by scanning for a
-  line starting with `Buchung;` rather than by skipping a set number of rows.
+  with a private key, which cannot live in a browser.
+- **Consent expires.** Reconnecting is a recurring event, not a setup step, so
+  the app holds last-known data, keeps working while disconnected, and shows a
+  clear reconnect state.
+- **Staleness between refreshes is accepted.** No compensating mechanism, such
+  as entering an expense before it lands.
+- **A CSV or PDF import path is the initial backfill only**, run once. PSD2
+  returns a limited window of history, but free-to-spend needs only the balance
+  at the last rollover and the current period's transactions, so a short window
+  is enough to run on.
 
 ### 3.2 Import identity and deduplication
 
@@ -177,22 +123,15 @@ The relative form matters when income arrives on the last banking day rather tha
 a fixed date: a fixed day drifts against the month end as month lengths change,
 a relative one does not.
 
-This replaces the alternative of detecting recurring transactions and shifting
-their dates individually. See `strategy.md` §4.1 for why — briefly: only
-*recurring* transactions on the wrong side of a boundary cause a permanent
-offset, and both the culprits (salary in, rent out) cluster in the same few days
-at the end of the month, so one boundary shift catches them together.
+It defaults to **-5**, which clears a month-end salary with a few days to spare.
 
-The rollover day should be picked by looking at the actual transaction history for
-a reliable gap. It needs a margin either way: if the salary sometimes lands a day
-early, the rollover day has to sit safely before the earliest it has ever
-arrived.
+**The setting has to explain itself.** A rollover day on the wrong side of the
+salary overstates free-to-spend by a full salary every period, permanently, and
+nothing else in the app is as easy to get quietly wrong. The report warns when a
+period's income is more than 50% from the median, which is the symptom.
 
-**This setting has to explain itself.** It is the least intuitive option in the
-app, and a rollover day on the wrong side of the salary overstates free-to-spend
-by a full salary every period, permanently. The configuration screen should say
-that in plain words. Suggesting a day from the history, and previewing its effect,
-are parked in `v2-ideas.md`.
+Suggesting a day from the history, and previewing its effect, are parked in
+`v2-ideas.md`.
 
 ### 4.2 No scheduled work
 
@@ -230,19 +169,16 @@ At each rollover the app **writes an automatic virtual transaction** into each
 pocket. A pocket's balance is the sum of the virtual transactions and pocket
 payments against it — it is never recomputed from the pocket's configuration.
 
-This is the one place stored state is genuinely required, because a configuration
-change must be **forward-looking**. A pocket that has received €50 for 10 periods
-holds €500; raising it to €80 must leave it at €500 and grow it by €80 from the
-next rollover. Derived from configuration it would instead jump to `80 × 10` =
-€800 — claiming money that was never set aside, and dropping free-to-spend by €300
-on the spot.
+This is the one place stored state is required: a configuration change must be
+**forward-looking**, affecting future rollovers only, and a derived balance would
+rewrite every past period as though the new amount had always applied.
 
-Manual virtual transactions (§5.4) are the same record, differing only in who
-created them.
+Manual virtual transactions (section 5.4) are the same record, differing only in
+who created them.
 
-**Idempotency.** Because automatic virtual transactions are generated lazily on
-app load (§4.2) rather than by a scheduled job, they must be keyed by pocket and
-period, so two loads in quick succession cannot create the contribution twice.
+**Idempotency.** Automatic virtual transactions are generated lazily on app load
+(section 4.2) rather than by a scheduled job, so they are keyed by pocket and
+period: two loads in quick succession must not create the contribution twice.
 
 ### 5.3 Depletion: detection plus a prompt
 
@@ -354,17 +290,13 @@ fine: it is the less important of the two.
 
 ## 8. Demo mode
 
-Everything above is designed so the app can run end to end **with no bank
-connection at all**, against a committed export in a real bank's format
-(`tests/fixtures/`).
+The app runs end to end **with no bank connection at all**, against a committed
+export in a real bank's format (`tests/fixtures/`), so the UI can be built and
+judged against realistic numbers before any account is connected.
 
-This is not a testing convenience, it is what lets the UI be built and judged
-against realistic numbers before any account is connected.
-
-The fixture is unclassified, so the fun and required split is not exercised by
-it until classification is storable (M5), at which point classification is added
-on top of the fixture. See `stack.md` §8 for why a generator was removed in
-favour of a file.
+That fixture is unclassified, so it does not exercise the fun and required split
+until classification is storable (M5), at which point classification is added on
+top of it.
 
 ## 9. The ritual
 

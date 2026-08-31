@@ -1,12 +1,13 @@
 """The ING adapter, against a fixture with a real running-balance chain."""
 
-from datetime import date
 from pathlib import Path
 
 import pytest
 
 from importers import ing_csv
 from importers.errors import ParseError
+from importers.importer import Importer
+from importers.ing_csv import IngCsvImporter
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ing_sample.csv"
 RAW = FIXTURE.read_bytes()
@@ -20,8 +21,6 @@ def statement():
 def test_the_fixture_parses_cleanly(statement):
     assert statement.is_clean
     assert statement.bank == "ING"
-    assert statement.period_start == date(2026, 3, 1)
-    assert statement.period_end == date(2026, 8, 31)
     assert len(statement.transactions) == 62
 
 
@@ -35,6 +34,10 @@ def test_both_dates_are_kept_and_can_differ(statement):
     differing = [t for t in statement.transactions if t.value_date != t.booking_date]
     assert differing, "the fixture should contain at least one Wertstellung mismatch"
     assert differing[0].value_date > differing[0].booking_date
+
+
+def test_the_ing_adapter_is_an_importer():
+    assert isinstance(IngCsvImporter(), Importer)
 
 
 def test_the_opening_balance_is_an_anchor_not_a_transaction(statement):
@@ -57,9 +60,7 @@ def test_a_latin1_and_a_utf8_export_parse_identically():
 
 
 def test_ids_are_stable_across_reimports(statement):
-    assert [t.id for t in ing_csv.parse(RAW).transactions] == [
-        t.id for t in statement.transactions
-    ]
+    assert [t.id for t in ing_csv.parse(RAW).transactions] == [t.id for t in statement.transactions]
 
 
 def test_identical_purchases_on_one_day_stay_distinct():

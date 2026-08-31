@@ -19,6 +19,7 @@ Read in this order:
 | [`docs/stack.md`](docs/stack.md) | Technology decisions and the reasoning behind them |
 | [`docs/build-plan.md`](docs/build-plan.md) | Staged milestones, M0 to M8 |
 | [`docs/v2-ideas.md`](docs/v2-ideas.md) | Good ideas deliberately not in the first build |
+| [`AGENTS.md`](AGENTS.md) | Conventions, and the export-format quirks that bite |
 
 ## Current state
 

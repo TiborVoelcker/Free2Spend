@@ -15,8 +15,8 @@ import signal
 import sys
 from datetime import date, timedelta
 
-from engine import format_euros, period_containing
-from importers import ing_csv
+from engine import format_euros, period_containing, summarise
+from importers.ing_csv import IngCsvImporter
 from importers.statement import ImportedStatement
 from scripts import _report
 
@@ -43,7 +43,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    statement = ing_csv.read(args.path)
+    statement = IngCsvImporter().read(args.path)
     _print_statement(statement)
 
     if statement.row_errors:
@@ -71,7 +71,8 @@ def main() -> int:
         return 1
 
     today = args.today or _end_of_last_complete_period(ledger.last_date, args.rollover_day)
-    summaries = ledger.summarise(
+    summaries = summarise(
+        ledger,
         args.rollover_day,
         today,
         since=_first_complete_period_start(ledger.first_date, args.rollover_day),
@@ -93,12 +94,9 @@ def main() -> int:
 
 
 def _print_statement(statement: ImportedStatement) -> None:
-    window = ""
-    if statement.period_start and statement.period_end:
-        window = f", {statement.period_start.isoformat()} to {statement.period_end.isoformat()}"
     print()
     print(f"{statement.bank} · {statement.account_name} · {statement.iban}")
-    print(f"Read as {statement.encoding}{window}")
+    print(f"Read as {statement.encoding}")
     print(
         f"{len(statement.transactions)} transactions, "
         f"opening balance {format_euros(statement.opening_balance_cents)}, "

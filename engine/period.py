@@ -43,9 +43,7 @@ def _validate(rollover_day: int) -> None:
     February as in a 31 day month.
     """
     if not (1 <= rollover_day <= 31 or -28 <= rollover_day <= -1):
-        raise ValueError(
-            f"rollover_day must be 1..31 or -1..-28, got {rollover_day}"
-        )
+        raise ValueError(f"rollover_day must be 1..31 or -1..-28, got {rollover_day}")
 
 
 def _start_on_or_before(moment: date, rollover_day: int) -> date:

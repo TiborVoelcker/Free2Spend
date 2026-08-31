@@ -113,8 +113,7 @@ and chosen a rollover day from the data.
 *Outcome:* built against a real ING export format. `python3 -m
 scripts.import_report <csv>` reads the export, verifies its running balance
 against every row, derives the window's opening and closing balances as anchors,
-and renders the table. What a real export contains is recorded in
-`implementation.md` section 3.1.2.
+and renders the table. What a real export contains is recorded in `AGENTS.md`.
 
 The rollover day defaults to -5, five days before the month end, and the report
 warns when any period's income is more than 50% away from the usual — the

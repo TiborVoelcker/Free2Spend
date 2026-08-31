@@ -7,6 +7,7 @@ docs/implementation.md section 3.1.2.
 from __future__ import annotations
 
 import hashlib
+import itertools
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -29,9 +30,17 @@ BALANCE = "Saldo"
 AMOUNT = "Betrag"
 
 
-def read(path: str) -> ImportedStatement:
-    with open(path, "rb") as handle:
-        return parse(handle.read())
+class IngCsvImporter:
+    """The ING adapter, over `csv_table` and `german`."""
+
+    name = "ING Umsatzanzeige (CSV)"
+
+    def read(self, path: str) -> ImportedStatement:
+        with open(path, "rb") as handle:
+            return self.parse(handle.read())
+
+    def parse(self, payload: bytes) -> ImportedStatement:
+        return parse(payload)
 
 
 def parse(payload: bytes) -> ImportedStatement:
@@ -44,14 +53,11 @@ def parse(payload: bytes) -> ImportedStatement:
     entries, row_errors = _read_entries(table)
     entries = _oldest_first(entries, meta)
 
-    start, end = _period(meta)
     return ImportedStatement(
         encoding=encoding,
         bank=_meta(meta, "Bank"),
         iban=_meta(meta, "IBAN"),
         account_name=_meta(meta, "Kontoname"),
-        period_start=start,
-        period_end=end,
         transactions=tuple(entry.transaction for entry in entries),
         anchors=_anchors(entries, meta),
         row_errors=tuple(row_errors),
@@ -167,9 +173,7 @@ def _oldest_first(entries: list[_Entry], meta: dict[str, tuple[str, ...]]) -> li
     return list(reversed(entries)) if descending else entries
 
 
-def _anchors(
-    entries: list[_Entry], meta: dict[str, tuple[str, ...]]
-) -> tuple[BalanceAnchor, ...]:
+def _anchors(entries: list[_Entry], meta: dict[str, tuple[str, ...]]) -> tuple[BalanceAnchor, ...]:
     """Two per import: the balance before the window, and after it.
 
     The opening balance is stated nowhere in the file; it is the first row's
@@ -196,7 +200,7 @@ def _anchors(
 def _verify_chain(entries: list[_Entry]) -> tuple[str, ...]:
     """Every row carries a running balance, so a misread amount shows up at once."""
     problems = []
-    for previous, current in zip(entries, entries[1:]):
+    for previous, current in itertools.pairwise(entries):
         expected = previous.balance_cents + current.transaction.amount_cents
         if expected != current.balance_cents:
             problems.append(
@@ -204,14 +208,3 @@ def _verify_chain(entries: list[_Entry]) -> tuple[str, ...]:
                 f"cents, expected {expected}"
             )
     return tuple(problems)
-
-
-def _period(meta: dict[str, tuple[str, ...]]) -> tuple[date | None, date | None]:
-    """`Zeitraum;01.03.2026 - 31.08.2026`, the range an import replaces."""
-    parts = [part.strip() for part in _meta(meta, "Zeitraum").split("-")]
-    if len(parts) != 2:
-        return None, None
-    try:
-        return german.parse_date(parts[0]), german.parse_date(parts[1])
-    except ParseError:
-        return None, None

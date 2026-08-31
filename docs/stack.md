@@ -62,10 +62,11 @@ engine/        pure functions. no I/O, no framework, no clock.
 store/         sqlite persistence. thin.
 importers/     bank exports, normalised into engine shapes
     errors.py      what an importer reports rather than raises
+    importer.py    the Importer protocol
     csv_table.py   generic: decode a file, take the table at a given header line
     german.py      German dates and amounts
     statement.py   what every importer produces
-    ing_csv.py     the ING adapter, built on the three above
+    ing_csv.py     the ING adapter, built on the four above
 api/           fastapi. http, auth, serving the frontend.
 scripts/       command line entry points. does I/O.
 web/           the SPA
@@ -84,6 +85,9 @@ adapter, not a new parser.
 them is the header, the rest are rows. It does not assume a preamble exists,
 because not every bank has one — finding the header line, and reading whatever
 sits above it, belongs to the adapter.
+
+Adapters satisfy a **Protocol**, not a base class. The shared plumbing is
+composed, so inheritance would re-couple what splitting it apart decoupled.
 
 Directories arrive with the milestone that needs them, rather than being created
 empty up front.

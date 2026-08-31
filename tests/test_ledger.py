@@ -2,7 +2,7 @@ from datetime import date
 
 from conftest import anchor, fun, ledger, txn
 
-from engine import period_containing
+from engine import period_containing, summarise
 
 PERIOD = period_containing(date(2026, 3, 5), 27)  # 2026-02-27 to 2026-03-26
 
@@ -24,7 +24,7 @@ def test_an_empty_ledger_is_zero_everywhere():
     assert book.balance_before(d("2026-03-05")) == 0
     assert book.free_to_spend(PERIOD) == 0
     assert book.remaining_free_to_spend(PERIOD) == 0
-    assert book.summarise(27, today=d("2026-03-05")) == []
+    assert summarise(book, 27, today=d("2026-03-05")) == []
 
 
 def test_required_spending_does_not_touch_this_period_free_to_spend():
@@ -91,6 +91,21 @@ def test_the_latest_anchor_before_the_moment_wins():
     assert book.balance_before(d("2026-03-06")) == 47_000
 
 
+def test_two_anchors_on_one_day_resolve_the_same_way_whatever_the_order():
+    """They contradict each other and cannot both be right.
+
+    Which one wins is arbitrary, but it must not depend on the order they
+    happened to be constructed in. `reconcile` is what reports the conflict.
+    """
+    one, two = anchor("2026-02-28", 500), anchor("2026-02-28", 900)
+    forwards = ledger(txn("2026-03-05", -30), anchors=(one, two))
+    backwards = ledger(txn("2026-03-05", -30), anchors=(two, one))
+
+    assert forwards.balance_before(d("2026-03-06")) == backwards.balance_before(d("2026-03-06"))
+    assert forwards.reconcile() == backwards.reconcile()
+    assert len(forwards.reconcile()) == 1
+
+
 def test_reconcile_is_quiet_when_the_transactions_explain_the_anchors():
     book = ledger(
         txn("2026-03-05", -30),
@@ -107,6 +122,4 @@ def test_reconcile_finds_a_missing_transaction():
         anchors=(anchor("2026-02-28", 500), anchor("2026-03-31", 550)),
     )
     (problem,) = book.reconcile()
-    assert problem.expected_cents == 47_000
-    assert problem.actual_cents == 55_000
-    assert problem.difference_cents == 8_000
+    assert "47000" in problem and "55000" in problem

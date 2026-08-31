@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 
 from engine import BalanceAnchor, Ledger, Transaction
 from importers.errors import RowError
@@ -15,8 +14,6 @@ class ImportedStatement:
     bank: str = ""
     iban: str = ""
     account_name: str = ""
-    period_start: date | None = None
-    period_end: date | None = None
     transactions: tuple[Transaction, ...] = ()
     anchors: tuple[BalanceAnchor, ...] = ()
     row_errors: tuple[RowError, ...] = ()

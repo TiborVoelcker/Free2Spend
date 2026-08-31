@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Sequence
 
 from engine import PeriodSummary, format_euros
@@ -70,7 +71,7 @@ def print_checks(summaries: Sequence[PeriodSummary]) -> bool:
         )
         if expected != summary.closing_balance_cents:
             problems.append(f"{summary.period.label}: closing balance does not reconcile")
-    for earlier, later in zip(summaries, summaries[1:]):
+    for earlier, later in itertools.pairwise(summaries):
         if earlier.closing_balance_cents != later.free_to_spend_cents:
             problems.append(
                 f"{later.period.label}: free-to-spend is not the previous closing balance"
