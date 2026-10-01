@@ -137,6 +137,11 @@ their cut.
 **Done when:** the M2 table, re-run with your actual pockets, still makes sense —
 including at least one period where a pocket depletes.
 
+*Expect this to be the hardest milestone.* Actual Budget's equivalent — targets,
+due dates, recurrence, priorities, partial funding — runs to roughly 1,500 lines
+against 3,000 lines of tests. Ours should be deliberately dumber, and the size of
+theirs is the reason to keep checking that it is.
+
 ---
 
 ## M4 — The one number, on your phone

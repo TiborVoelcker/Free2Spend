@@ -74,25 +74,31 @@ shape the build:
 
 ### 3.2 Import identity and deduplication
 
-The user will re-import overlapping ranges. Getting this wrong either duplicates
-transactions (free-to-spend collapses) or drops them (free-to-spend inflates).
+Two sources will overlap. The CSV backfill and the first PSD2 sync cover some of
+the same weeks, and the same real transaction arrives from each with a different
+id. Re-importing one export is the easy case; this is the one that matters.
 
 The trap: **genuine duplicates exist.** Two €3.50 coffees at the same shop on the
-same day are two transactions, not one, so per-row deduplication by content is
-wrong.
+same day are two transactions, not one, so matching on content alone is wrong.
 
-Two mechanisms, in order:
+Matching, in order:
 
-- **If the channel provides a stable transaction id**, use it. Bank APIs do.
-- **Otherwise, import by range replacement**: an import covers a known date
-  range, and importing it *replaces* every transaction in that range rather than
-  merging row by row. Duplicates within the range are preserved correctly, and
-  re-importing is idempotent.
+- **The channel's own transaction id**, where it has one. Highest fidelity.
+- **Otherwise, same account, same amount, booking date within a few days.** The
+  window is needed because one real transaction's booking date differs between
+  channels.
+- **If both sides carry ids and the ids differ, they are different
+  transactions** — do not match them, whatever else lines up.
 
-Range replacement has to preserve the classifications the user already made for
-transactions in that range. Match on content to carry the class over, and leave
-anything ambiguous back in the review queue — a lost classification is harmless
-(§6), so this can be crude.
+Content-hash ids already make re-importing one export idempotent, so range
+replacement was solving a problem we do not have, and it cannot solve this one:
+two sources' windows do not align. Deduplication has to be per transaction.
+
+A matched transaction keeps the classification already made for it.
+
+Getting this wrong inflates the balance, and so free-to-spend, directly. The
+anchors in section 3.3 are what catch it: duplicated transactions no longer
+explain the change between two anchors.
 
 ### 3.3 Balance anchors and reconciliation
 
@@ -158,6 +164,11 @@ combinations:
 | target + due date | computed: `(target − current) / periods remaining` | yearly insurance |
 | target, no due date | user-set; stops on reaching the target | the buffer |
 | neither | user-set, or manual moves only | an open-ended pot |
+
+A pocket also has to say what happens when it goes negative: carry the deficit
+forward, or reset to zero and take the shortfall out of free-to-spend instead.
+Both are wanted — a sinking fund should carry, a monthly allowance should reset —
+so it is a per-pocket setting rather than one rule for all of them.
 
 **Recurrence** matters because insurance is due every year, not once. On depletion
 (§5.3) the due date rolls forward and the contribution recomputes, so the pocket is
