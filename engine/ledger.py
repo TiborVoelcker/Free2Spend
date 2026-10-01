@@ -1,68 +1,125 @@
-"""The numbers, derived from the transaction log.
-
-Nothing here is stored. `free-to-spend = balance - pockets` is a definition
-recomputed from the balance at each rollover, not an accumulator
-(docs/strategy.md section 2.1).
-"""
+"""The ledger: transactions, anchors, and the balances derived from them."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import date
 
-from engine.model import Classification, Transaction
+from engine.model import BalanceAnchor, Classification, Transaction
 from engine.period import Period
 
 
-def balance_before(transactions: Iterable[Transaction], moment: date) -> int:
-    """The balance immediately before `moment`.
+class Ledger:
+    """Everything known about an account."""
 
-    Transactions dated `moment` itself are excluded, so this is the balance as
-    the day begins.
-    """
-    return sum(t.amount_cents for t in transactions if t.date < moment)
+    def __init__(
+        self,
+        transactions: Iterable[Transaction] = (),
+        anchors: Iterable[BalanceAnchor] = (),
+    ) -> None:
+        self.transactions = tuple(sorted(transactions, key=lambda t: (t.booking_date, t.id)))
+        # Sorted by balance as well as date so that two anchors claiming the same
+        # day resolve the same way every time. They contradict each other, and
+        # `reconcile` reports it; picking silently and differently would not.
+        self.anchors = tuple(sorted(anchors, key=lambda a: (a.as_of, a.balance_cents)))
 
+    def __bool__(self) -> bool:
+        return bool(self.transactions)
 
-def free_to_spend(transactions: Iterable[Transaction], period: Period) -> int:
-    """The period's free-to-spend, fixed at its start.
+    @property
+    def first_date(self) -> date | None:
+        return self.transactions[0].booking_date if self.transactions else None
 
-    This is `balance - pockets`. Pockets arrive in M3; until then there are
-    none, so it is the balance at the rollover.
-    """
-    return balance_before(transactions, period.start)
+    @property
+    def last_date(self) -> date | None:
+        return self.transactions[-1].booking_date if self.transactions else None
 
+    def balance_before(self, moment: date) -> int:
+        """The balance as `moment` begins; transactions dated `moment` are excluded.
 
-def fun_spend(
-    transactions: Iterable[Transaction],
-    period: Period,
-    as_of: date | None = None,
-) -> int:
-    """Fun spending within the period, as a positive number.
+        Counted from the latest anchor before `moment`, which keeps the span of
+        transactions being trusted as short as the anchors allow.
+        """
+        base = 0
+        since: date | None = None
+        for anchor in self.anchors:
+            if anchor.as_of >= moment:
+                break
+            base, since = anchor.balance_cents, anchor.as_of
+        return base + sum(
+            t.amount_cents
+            for t in self.transactions
+            if (since is None or t.booking_date > since) and t.booking_date < moment
+        )
 
-    `as_of` stops the count part-way through a period; passing a date beyond the
-    period simply counts all of it. A refund classified as fun reduces the total,
-    which is what makes it net spending rather than gross.
-    """
-    total = 0
-    for transaction in transactions:
-        if transaction.classification is not Classification.FUN:
-            continue
-        if not period.contains(transaction.date):
-            continue
-        if as_of is not None and transaction.date > as_of:
-            continue
-        total -= transaction.amount_cents
-    return total
+    def reconcile(self) -> list[str]:
+        """Where the transactions between two anchors do not explain the change.
 
+        A discrepancy means transactions are missing. This is the only real
+        defence against silent data loss.
+        """
+        problems = []
+        for earlier, later in zip(self.anchors, self.anchors[1:]):
+            moved = sum(
+                t.amount_cents
+                for t in self.transactions
+                if earlier.as_of < t.booking_date <= later.as_of
+            )
+            expected = earlier.balance_cents + moved
+            if expected != later.balance_cents:
+                problems.append(
+                    f"{earlier.as_of} to {later.as_of}: transactions explain "
+                    f"{expected} cents but the bank says {later.balance_cents}"
+                )
+        return problems
 
-def remaining_free_to_spend(
-    transactions: Iterable[Transaction],
-    period: Period,
-    as_of: date | None = None,
-) -> int:
-    """What is left of the period's free-to-spend. The number the user looks at.
+    def free_to_spend(self, period: Period) -> int:
+        """The period's free-to-spend, fixed at its start.
 
-    May be negative: that means the pockets claim more than the account holds,
-    and it is deliberately not clamped to zero (docs/strategy.md section 4.2).
-    """
-    return free_to_spend(transactions, period) - fun_spend(transactions, period, as_of)
+        This is `balance - pockets`. Pockets arrive in M3; until then there are
+        none, so it is exactly the balance at the rollover.
+        """
+        return self.balance_before(period.start)
+
+    def fun_spend(self, period: Period, as_of: date | None = None) -> int:
+        """Fun spending within the period, as a positive number.
+
+        A refund classified as fun reduces the total, which makes this net
+        spending rather than gross.
+        """
+        total = 0
+        for transaction in self.transactions:
+            if transaction.classification is not Classification.FUN:
+                continue
+            if not period.contains(transaction.booking_date):
+                continue
+            if as_of is not None and transaction.booking_date > as_of:
+                continue
+            total -= transaction.amount_cents
+        return total
+
+    def remaining_free_to_spend(self, period: Period, as_of: date | None = None) -> int:
+        """What is left of the period's free-to-spend. The number the user looks at.
+
+        May be negative: that means the pockets claim more than the account
+        holds, and it is deliberately not clamped (docs/strategy.md section 4.2).
+        """
+        return self.free_to_spend(period) - self.fun_spend(period, as_of)
+
+    def required_spend(self, period: Period) -> int:
+        total = 0
+        for transaction in self.transactions:
+            if transaction.classification is not Classification.REQUIRED:
+                continue
+            if period.contains(transaction.booking_date) and transaction.amount_cents < 0:
+                total -= transaction.amount_cents
+        return total
+
+    def income(self, period: Period) -> int:
+        total = 0
+        for transaction in self.transactions:
+            if transaction.classification is not Classification.REQUIRED:
+                continue
+            if period.contains(transaction.booking_date) and transaction.amount_cents > 0:
+                total += transaction.amount_cents
+        return total

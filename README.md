@@ -19,36 +19,38 @@ Read in this order:
 | [`docs/stack.md`](docs/stack.md) | Technology decisions and the reasoning behind them |
 | [`docs/build-plan.md`](docs/build-plan.md) | Staged milestones, M0 to M8 |
 | [`docs/v2-ideas.md`](docs/v2-ideas.md) | Good ideas deliberately not in the first build |
+| [`AGENTS.md`](AGENTS.md) | Conventions, and the export-format quirks that bite |
 
 ## Current state
 
-Milestones **M0 and M1**. There is no application yet, by design: the strategy
-is validated before the app is built (`docs/build-plan.md`). What exists is a
-pure engine, a demo data generator, and a script that prints a year of
-free-to-spend.
+Milestones **M0 to M2**. There is no application yet, by design: the strategy is
+validated before the app is built (`docs/build-plan.md`). What exists is a pure
+engine, an importer for ING CSV exports, and a script that prints a
+period-by-period free-to-spend table from one.
 
-## Running the demo report
+## Reporting on an export
 
 No dependencies, no database, no setup:
 
 ```bash
-python3 -m scripts.demo_year
+python3 -m scripts.import_report tests/fixtures/ing_sample.csv
+python3 -m scripts.import_report statement.csv --rollover-day 27
+python3 -m scripts.import_report statement.csv --help
 ```
 
-Useful variations:
+The rollover day defaults to **-5**: five days before the month end, counting
+back so it tracks the month end rather than drifting against it. The report
+warns if any period's income is more than 50% away from the usual, which is the
+symptom of a rollover day on the wrong side of the salary.
 
-```bash
-# calendar months instead of a rollover day, showing the salary-timing problem
-python3 -m scripts.demo_year --rollover-day 1
+It verifies the export's running balance against every row, records the window's
+opening and closing balances as anchors, and checks that the transactions between
+them explain the change.
 
-# a rollover day relative to the month end: -1 is the last day, -3 the third from last
-python3 -m scripts.demo_year --rollover-day -3
-
-# dial the holiday up past that period's free-to-spend to see an overspent period
-python3 -m scripts.demo_year --splurge 480000
-
-python3 -m scripts.demo_year --help
-```
+Nothing is classified at this stage, so every payment counts as required and
+free-to-spend is just the accumulating balance. The column that means something
+is **Surplus** — income less everything that left, which is what each period
+would hand to the next once the budget is actually being spent down.
 
 ## Tests
 
@@ -61,14 +63,14 @@ python3 -m pytest
 
 ```
 engine/     pure functions. no I/O, no framework, no clock.
-demo/       generated demo data, so the app can run with no bank connection
+importers/  bank exports, normalised into the engine's shapes
 scripts/    command line entry points. the only layer here that does I/O.
 tests/
 web/        the frontend
 docs/
 ```
 
-`store/`, `importers/` and `api/` arrive with the milestones that need them.
+`store/` and `api/` arrive with the milestones that need them.
 
 ## Frontend
 

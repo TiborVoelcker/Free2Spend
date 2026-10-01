@@ -1,3 +1,4 @@
+import itertools
 from datetime import date
 
 import pytest
@@ -46,7 +47,7 @@ def test_periods_between_covers_the_range_without_gaps():
     periods = periods_between(d("2025-09-01"), d("2026-08-31"), 27)
     assert periods[0].contains(d("2025-09-01"))
     assert periods[-1].contains(d("2026-08-31"))
-    assert all(a.end == b.start for a, b in zip(periods, periods[1:]))
+    assert all(a.end == b.start for a, b in itertools.pairwise(periods))
 
 
 @pytest.mark.parametrize(

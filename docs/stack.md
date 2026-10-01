@@ -59,9 +59,14 @@ bank is ever connected.
 
 ```
 engine/        pure functions. no I/O, no framework, no clock.
-demo/          generated demo data (section 8). pure, seeded.
 store/         sqlite persistence. thin.
-importers/     enablebanking/, csv/  → normalise into engine shapes
+importers/     bank exports, normalised into engine shapes
+    errors.py      what an importer reports rather than raises
+    importer.py    the Importer protocol
+    csv_table.py   generic: decode a file, take the table at a given header line
+    german.py      German dates and amounts
+    statement.py   what every importer produces
+    ing_csv.py     the ING adapter, built on the four above
 api/           fastapi. http, auth, serving the frontend.
 scripts/       command line entry points. does I/O.
 web/           the SPA
@@ -69,8 +74,20 @@ tests/
 ```
 
 Dependency direction is strictly downward: `api` knows `store` and `engine`,
-`store` knows `engine`, and **`engine` knows nothing**. `demo` knows only
-`engine`, so generated data is the same shape as imported data.
+`store` knows `engine`, and **`engine` knows nothing**.
+
+Inside `importers/`, the same split again: `csv_table` and `german` are generic
+mechanism that knows nothing about any bank, and each bank is an adapter over
+them producing the one shared `ImportedStatement`. A second bank is a new
+adapter, not a new parser.
+
+`csv_table` deliberately assumes very little: a file decodes to lines, one of
+them is the header, the rest are rows. It does not assume a preamble exists,
+because not every bank has one — finding the header line, and reading whatever
+sits above it, belongs to the adapter.
+
+Adapters satisfy a **Protocol**, not a base class. The shared plumbing is
+composed, so inheritance would re-couple what splitting it apart decoupled.
 
 Directories arrive with the milestone that needs them, rather than being created
 empty up front.
@@ -177,18 +194,18 @@ a fixture transaction log plus a pocket configuration, asserting the
 free-to-spend series across a simulated year. Because the engine has no clock and
 no I/O, these run in milliseconds and are exactly reproducible.
 
-**Demo data is a first-class module, not a test fixture.** A generator that
-produces a plausible German year — salary landing at the end of the preceding
-month, rent, weekly groceries, an annual insurance premium, a couple of
-surprises — so that:
+**Demo data is a committed export, not a generator.** `tests/fixtures/` holds a
+CSV in a real bank's format, so the whole app is runnable end to end with **no
+bank connection at all**, and the UI can be built against realistic numbers from
+day one.
 
-- the whole app is runnable end to end with **no bank connection at all**
-- the strategy can be eyeballed over a full year before any real data exists
-- edge cases (a negative period, a pocket depleting, a windfall) can be summoned
-  on demand instead of waited for
+M1 built a generator for this instead. It was removed at M2: once a real export
+format was in hand, a committed file did the same job with nothing to maintain,
+and the generator's invented numbers were a steady source of test churn.
 
-The app should have a **demo mode** that runs against generated data. This is
-what makes "get it running as fast as possible" achievable.
+The cost is that the fixture is unclassified, so nothing exercises the fun and
+required split end to end until classification is storable at M5. Classification
+will be added on top of the fixture rather than by generating new data.
 
 ---
 

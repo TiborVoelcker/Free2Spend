@@ -14,3 +14,8 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# Europe/Berlin is implied throughout (see AGENTS.md), and an export's own
+# creation time carries no zone, so naive datetimes are deliberate.
+ignore = ["DTZ001"]

@@ -216,7 +216,7 @@ them as bugs.
 | Thing | Why deferred | Later cost |
 |---|---|---|
 | **Transitory money** — group dinners, fronted work expenses, deposits | Nets out within a period or two; margins are loose enough | Low. A flag on a transaction. |
-| **Payment float** — bought in one period, settles in the next | Everything is debit; float is near zero | Low, *provided* the period boundary (§4.1) exists from the start |
+| **Payment float** — bought in one period, settles in the next | Everything is debit; float is near zero. A real export confirms the purchase date is not even a column, only text inside the purpose field | Low, *provided* the period boundary (§4.1) exists from the start |
 | **Per-transaction period overrides** | The rollover day handles the recurring cases, which are the ones that matter | Low |
 | **Debt as a first-class concept** | A required expense, or a pocket | Medium — would need balance tracking |
 | **Pocket priority when underfunded** | §4.5 gives the same information without it | Low |
