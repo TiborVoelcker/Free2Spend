@@ -165,10 +165,15 @@ combinations:
 | target, no due date | user-set; stops on reaching the target | the buffer |
 | neither | user-set, or manual moves only | an open-ended pot |
 
-A pocket also has to say what happens when it goes negative: carry the deficit
-forward, or reset to zero and take the shortfall out of free-to-spend instead.
-Both are wanted — a sinking fund should carry, a monthly allowance should reset —
-so it is a per-pocket setting rather than one rule for all of them.
+A pocket that goes negative carries its deficit forward, and needs no mechanism
+to do so: the balance and the pockets fall by the same amount, so free-to-spend
+is untouched and future contributions make the shortfall up. That is what a
+sinking fund is for.
+
+Envelope systems offer a per-envelope choice here, between carrying the deficit
+and resetting to zero so the shortfall comes out of the global pot instead. The
+second only matters for monthly allowances, which the pocket test in
+`strategy.md` section 3 keeps out of pockets, so there is nothing to choose.
 
 **Recurrence** matters because insurance is due every year, not once. On depletion
 (§5.3) the due date rolls forward and the contribution recomputes, so the pocket is
